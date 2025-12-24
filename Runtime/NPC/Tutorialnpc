@@ -1,0 +1,1172 @@
+// ============================================================================
+// Deskillz SDK - Tutorial NPC System
+// Guided tutorial with step-by-step instructions and progress tracking
+// ============================================================================
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Events;
+
+namespace Deskillz.SDK.NPC
+{
+    /// <summary>
+    /// Tutorial step types
+    /// </summary>
+    public enum TutorialStepType
+    {
+        Message,            // Display information
+        WaitForInput,       // Wait for specific input
+        WaitForAction,      // Wait for action completion
+        WaitForCondition,   // Wait for custom condition
+        HighlightUI,        // Highlight UI element
+        DemonstratAction,   // NPC demonstrates action
+        FreePlay,           // Let player practice freely
+        Checkpoint,         // Save progress checkpoint
+        Branch              // Conditional branching
+    }
+
+    /// <summary>
+    /// Input types for tutorial steps
+    /// </summary>
+    public enum TutorialInputType
+    {
+        AnyKey,
+        SpecificKey,
+        MouseClick,
+        Touch,
+        Movement,
+        Button,
+        Custom
+    }
+
+    /// <summary>
+    /// Single tutorial step
+    /// </summary>
+    [Serializable]
+    public class TutorialStep
+    {
+        public string StepId;
+        public string Title;
+        [TextArea(2, 4)]
+        public string Message;
+        public TutorialStepType Type = TutorialStepType.Message;
+        public float Duration = 0f;
+        public float Delay = 0f;
+        public bool CanSkip = true;
+        public bool PauseGame = false;
+
+        [Header("Input Settings")]
+        public TutorialInputType InputType = TutorialInputType.AnyKey;
+        public KeyCode RequiredKey = KeyCode.None;
+        public string InputAction = "";
+
+        [Header("UI Highlighting")]
+        public string HighlightTarget = "";
+        public Vector2 HighlightOffset = Vector2.zero;
+        public bool ShowArrow = true;
+
+        [Header("Conditions")]
+        public string ConditionId = "";
+        public float ConditionTimeout = 30f;
+
+        [Header("Branching")]
+        public string SuccessNextStep = "";
+        public string FailureNextStep = "";
+
+        [Header("Events")]
+        public UnityEvent OnStepStart;
+        public UnityEvent OnStepComplete;
+
+        public TutorialStep() 
+        {
+            StepId = Guid.NewGuid().ToString("N").Substring(0, 8);
+        }
+
+        public TutorialStep(string title, string message, TutorialStepType type = TutorialStepType.Message)
+        {
+            StepId = Guid.NewGuid().ToString("N").Substring(0, 8);
+            Title = title;
+            Message = message;
+            Type = type;
+        }
+    }
+
+    /// <summary>
+    /// Tutorial sequence (collection of steps)
+    /// </summary>
+    [Serializable]
+    public class TutorialSequence
+    {
+        public string SequenceId;
+        public string Name;
+        public string Description;
+        public List<TutorialStep> Steps = new List<TutorialStep>();
+        public bool AutoAdvance = true;
+        public float DefaultStepDuration = 3f;
+
+        public TutorialSequence()
+        {
+            SequenceId = Guid.NewGuid().ToString("N").Substring(0, 8);
+        }
+
+        public TutorialSequence(string name, string description = "")
+        {
+            SequenceId = Guid.NewGuid().ToString("N").Substring(0, 8);
+            Name = name;
+            Description = description;
+        }
+
+        public TutorialStep GetStep(string stepId)
+        {
+            return Steps.Find(s => s.StepId == stepId);
+        }
+
+        public int GetStepIndex(string stepId)
+        {
+            return Steps.FindIndex(s => s.StepId == stepId);
+        }
+    }
+
+    /// <summary>
+    /// Tutorial progress data
+    /// </summary>
+    [Serializable]
+    public class TutorialProgress
+    {
+        public string SequenceId;
+        public int CurrentStepIndex;
+        public string LastCheckpoint;
+        public List<string> CompletedSteps = new List<string>();
+        public Dictionary<string, int> StepAttempts = new Dictionary<string, int>();
+        public float TotalTime;
+        public DateTime StartedAt;
+        public DateTime LastPlayedAt;
+        public bool IsCompleted;
+
+        public float CompletionPercent => CompletedSteps.Count > 0 ? 
+            (float)CompletedSteps.Count / Mathf.Max(1, CurrentStepIndex + CompletedSteps.Count) : 0f;
+    }
+
+    /// <summary>
+    /// Event args for tutorial events
+    /// </summary>
+    public class TutorialEventArgs : EventArgs
+    {
+        public TutorialSequence Sequence { get; }
+        public TutorialStep Step { get; }
+        public int StepIndex { get; }
+        public TutorialProgress Progress { get; }
+
+        public TutorialEventArgs(TutorialSequence seq, TutorialStep step, int index, TutorialProgress progress)
+        {
+            Sequence = seq;
+            Step = step;
+            StepIndex = index;
+            Progress = progress;
+        }
+    }
+
+    /// <summary>
+    /// Tutorial NPC Controller - Manages guided tutorials
+    /// </summary>
+    public class TutorialNPC : MonoBehaviour
+    {
+        private static TutorialNPC _instance;
+        public static TutorialNPC Instance => _instance;
+
+        [Header("Settings")]
+        [SerializeField] private bool _persistProgress = true;
+        [SerializeField] private string _saveKeyPrefix = "deskillz_tutorial_";
+        [SerializeField] private float _defaultMessageDuration = 3f;
+
+        [Header("UI References")]
+        [SerializeField] private GameObject _tutorialPanel;
+        [SerializeField] private TMPro.TextMeshProUGUI _titleText;
+        [SerializeField] private TMPro.TextMeshProUGUI _messageText;
+        [SerializeField] private GameObject _continuePrompt;
+        [SerializeField] private GameObject _skipButton;
+        [SerializeField] private GameObject _highlightPrefab;
+        [SerializeField] private GameObject _arrowPrefab;
+
+        [Header("NPC")]
+        [SerializeField] private NPCController _demonstrationNPC;
+
+        // State
+        private TutorialSequence _currentSequence;
+        private TutorialStep _currentStep;
+        private int _currentStepIndex;
+        private TutorialProgress _currentProgress;
+        private bool _isPlaying;
+        private bool _isWaiting;
+        private float _stepTimer;
+        private Coroutine _stepCoroutine;
+
+        // Condition callbacks
+        private readonly Dictionary<string, Func<bool>> _conditionCallbacks = new Dictionary<string, Func<bool>>();
+
+        // UI elements
+        private GameObject _activeHighlight;
+        private GameObject _activeArrow;
+
+        // Events
+        public event EventHandler<TutorialEventArgs> OnTutorialStarted;
+        public event EventHandler<TutorialEventArgs> OnTutorialCompleted;
+        public event EventHandler<TutorialEventArgs> OnStepStarted;
+        public event EventHandler<TutorialEventArgs> OnStepCompleted;
+        public event EventHandler<TutorialEventArgs> OnStepSkipped;
+        public event Action<string, string> OnMessageDisplayed; // title, message
+
+        // Properties
+        public bool IsPlaying => _isPlaying;
+        public TutorialSequence CurrentSequence => _currentSequence;
+        public TutorialStep CurrentStep => _currentStep;
+        public int CurrentStepIndex => _currentStepIndex;
+        public TutorialProgress Progress => _currentProgress;
+        public float StepProgress => _currentStep != null && _currentStep.Duration > 0 
+            ? _stepTimer / _currentStep.Duration 
+            : 0f;
+
+        private void Awake()
+        {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            // Hide UI initially
+            if (_tutorialPanel != null)
+                _tutorialPanel.SetActive(false);
+        }
+
+        private void Update()
+        {
+            if (!_isPlaying || _currentStep == null)
+                return;
+
+            _stepTimer += Time.deltaTime;
+            _currentProgress.TotalTime += Time.deltaTime;
+
+            // Check for step completion
+            if (_isWaiting)
+            {
+                CheckStepCompletion();
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (_instance == this)
+                _instance = null;
+        }
+
+        #region Tutorial Control
+
+        /// <summary>
+        /// Start a tutorial sequence
+        /// </summary>
+        public void StartTutorial(TutorialSequence sequence, bool resumeFromCheckpoint = true)
+        {
+            if (sequence == null || sequence.Steps.Count == 0)
+            {
+                Debug.LogWarning("[Tutorial] Cannot start empty sequence");
+                return;
+            }
+
+            StopTutorial();
+
+            _currentSequence = sequence;
+            _currentProgress = LoadProgress(sequence.SequenceId);
+
+            // Resume from checkpoint or start fresh
+            if (resumeFromCheckpoint && !string.IsNullOrEmpty(_currentProgress.LastCheckpoint))
+            {
+                int checkpointIndex = sequence.GetStepIndex(_currentProgress.LastCheckpoint);
+                if (checkpointIndex >= 0)
+                    _currentStepIndex = checkpointIndex;
+                else
+                    _currentStepIndex = 0;
+            }
+            else
+            {
+                _currentStepIndex = 0;
+                _currentProgress = new TutorialProgress
+                {
+                    SequenceId = sequence.SequenceId,
+                    StartedAt = DateTime.UtcNow
+                };
+            }
+
+            _currentProgress.LastPlayedAt = DateTime.UtcNow;
+            _isPlaying = true;
+
+            OnTutorialStarted?.Invoke(this, CreateEventArgs());
+
+            Debug.Log($"[Tutorial] Started: {sequence.Name}");
+
+            // Start first step
+            PlayStep(_currentStepIndex);
+        }
+
+        /// <summary>
+        /// Stop current tutorial
+        /// </summary>
+        public void StopTutorial()
+        {
+            if (!_isPlaying)
+                return;
+
+            if (_stepCoroutine != null)
+            {
+                StopCoroutine(_stepCoroutine);
+                _stepCoroutine = null;
+            }
+
+            ClearHighlights();
+            HideUI();
+
+            if (_persistProgress && _currentProgress != null)
+                SaveProgress(_currentProgress);
+
+            _isPlaying = false;
+            _currentStep = null;
+
+            // Unpause if needed
+            Time.timeScale = 1f;
+
+            Debug.Log("[Tutorial] Stopped");
+        }
+
+        /// <summary>
+        /// Skip current step
+        /// </summary>
+        public void SkipStep()
+        {
+            if (!_isPlaying || _currentStep == null)
+                return;
+
+            if (!_currentStep.CanSkip)
+            {
+                Debug.Log("[Tutorial] Step cannot be skipped");
+                return;
+            }
+
+            OnStepSkipped?.Invoke(this, CreateEventArgs());
+            AdvanceToNextStep();
+        }
+
+        /// <summary>
+        /// Go to specific step
+        /// </summary>
+        public void GoToStep(int index)
+        {
+            if (!_isPlaying || _currentSequence == null)
+                return;
+
+            if (index < 0 || index >= _currentSequence.Steps.Count)
+            {
+                Debug.LogWarning($"[Tutorial] Invalid step index: {index}");
+                return;
+            }
+
+            PlayStep(index);
+        }
+
+        /// <summary>
+        /// Go to step by ID
+        /// </summary>
+        public void GoToStep(string stepId)
+        {
+            if (_currentSequence == null)
+                return;
+
+            int index = _currentSequence.GetStepIndex(stepId);
+            if (index >= 0)
+                GoToStep(index);
+        }
+
+        /// <summary>
+        /// Restart tutorial from beginning
+        /// </summary>
+        public void RestartTutorial()
+        {
+            if (_currentSequence == null)
+                return;
+
+            _currentProgress = new TutorialProgress
+            {
+                SequenceId = _currentSequence.SequenceId,
+                StartedAt = DateTime.UtcNow
+            };
+
+            _currentStepIndex = 0;
+            PlayStep(0);
+        }
+
+        #endregion
+
+        #region Step Execution
+
+        private void PlayStep(int index)
+        {
+            if (_currentSequence == null || index < 0 || index >= _currentSequence.Steps.Count)
+            {
+                CompleteTutorial();
+                return;
+            }
+
+            // Cleanup previous step
+            if (_stepCoroutine != null)
+            {
+                StopCoroutine(_stepCoroutine);
+                _stepCoroutine = null;
+            }
+            ClearHighlights();
+
+            _currentStepIndex = index;
+            _currentStep = _currentSequence.Steps[index];
+            _currentProgress.CurrentStepIndex = index;
+            _stepTimer = 0f;
+            _isWaiting = false;
+
+            // Track attempts
+            if (!_currentProgress.StepAttempts.ContainsKey(_currentStep.StepId))
+                _currentProgress.StepAttempts[_currentStep.StepId] = 0;
+            _currentProgress.StepAttempts[_currentStep.StepId]++;
+
+            // Handle pause
+            if (_currentStep.PauseGame)
+                Time.timeScale = 0f;
+            else
+                Time.timeScale = 1f;
+
+            // Fire event
+            _currentStep.OnStepStart?.Invoke();
+            OnStepStarted?.Invoke(this, CreateEventArgs());
+
+            // Start step coroutine
+            _stepCoroutine = StartCoroutine(ExecuteStep(_currentStep));
+        }
+
+        private IEnumerator ExecuteStep(TutorialStep step)
+        {
+            // Initial delay
+            if (step.Delay > 0)
+                yield return new WaitForSecondsRealtime(step.Delay);
+
+            // Show UI
+            ShowStepUI(step);
+
+            // Execute based on type
+            switch (step.Type)
+            {
+                case TutorialStepType.Message:
+                    yield return ExecuteMessageStep(step);
+                    break;
+
+                case TutorialStepType.WaitForInput:
+                    yield return ExecuteInputStep(step);
+                    break;
+
+                case TutorialStepType.WaitForAction:
+                    yield return ExecuteActionStep(step);
+                    break;
+
+                case TutorialStepType.WaitForCondition:
+                    yield return ExecuteConditionStep(step);
+                    break;
+
+                case TutorialStepType.HighlightUI:
+                    yield return ExecuteHighlightStep(step);
+                    break;
+
+                case TutorialStepType.DemonstratAction:
+                    yield return ExecuteDemonstrationStep(step);
+                    break;
+
+                case TutorialStepType.FreePlay:
+                    yield return ExecuteFreePlayStep(step);
+                    break;
+
+                case TutorialStepType.Checkpoint:
+                    ExecuteCheckpointStep(step);
+                    break;
+
+                case TutorialStepType.Branch:
+                    yield return ExecuteBranchStep(step);
+                    yield break; // Branch handles its own advancement
+            }
+
+            CompleteStep();
+        }
+
+        private IEnumerator ExecuteMessageStep(TutorialStep step)
+        {
+            float duration = step.Duration > 0 ? step.Duration : _defaultMessageDuration;
+
+            if (_currentSequence.AutoAdvance)
+            {
+                yield return new WaitForSecondsRealtime(duration);
+            }
+            else
+            {
+                // Wait for input to continue
+                ShowContinuePrompt(true);
+                _isWaiting = true;
+                while (_isWaiting && !WasInputReceived(TutorialInputType.AnyKey, KeyCode.None))
+                {
+                    yield return null;
+                }
+                ShowContinuePrompt(false);
+            }
+        }
+
+        private IEnumerator ExecuteInputStep(TutorialStep step)
+        {
+            _isWaiting = true;
+            float timeout = step.ConditionTimeout > 0 ? step.ConditionTimeout : float.MaxValue;
+            float elapsed = 0f;
+
+            while (_isWaiting && elapsed < timeout)
+            {
+                if (WasInputReceived(step.InputType, step.RequiredKey))
+                {
+                    _isWaiting = false;
+                    break;
+                }
+
+                elapsed += Time.unscaledDeltaTime;
+                yield return null;
+            }
+        }
+
+        private IEnumerator ExecuteActionStep(TutorialStep step)
+        {
+            _isWaiting = true;
+            float timeout = step.ConditionTimeout > 0 ? step.ConditionTimeout : 30f;
+            float elapsed = 0f;
+
+            // Wait for action completion via condition
+            while (_isWaiting && elapsed < timeout)
+            {
+                if (CheckCondition(step.ConditionId))
+                {
+                    _isWaiting = false;
+                    break;
+                }
+
+                elapsed += Time.unscaledDeltaTime;
+                yield return null;
+            }
+        }
+
+        private IEnumerator ExecuteConditionStep(TutorialStep step)
+        {
+            _isWaiting = true;
+            float timeout = step.ConditionTimeout > 0 ? step.ConditionTimeout : 30f;
+            float elapsed = 0f;
+
+            while (_isWaiting && elapsed < timeout)
+            {
+                if (CheckCondition(step.ConditionId))
+                {
+                    _isWaiting = false;
+                    break;
+                }
+
+                elapsed += Time.unscaledDeltaTime;
+                yield return null;
+            }
+        }
+
+        private IEnumerator ExecuteHighlightStep(TutorialStep step)
+        {
+            // Find and highlight target
+            HighlightTarget(step.HighlightTarget, step.HighlightOffset, step.ShowArrow);
+
+            // Wait for interaction or timeout
+            _isWaiting = true;
+            float duration = step.Duration > 0 ? step.Duration : 5f;
+            float elapsed = 0f;
+
+            while (_isWaiting && elapsed < duration)
+            {
+                if (WasInputReceived(step.InputType, step.RequiredKey))
+                {
+                    _isWaiting = false;
+                    break;
+                }
+
+                elapsed += Time.unscaledDeltaTime;
+                yield return null;
+            }
+
+            ClearHighlights();
+        }
+
+        private IEnumerator ExecuteDemonstrationStep(TutorialStep step)
+        {
+            // Start NPC demonstration
+            if (_demonstrationNPC != null)
+            {
+                _demonstrationNPC.Activate();
+                // The NPC should have a behavior set up for demonstration
+            }
+
+            float duration = step.Duration > 0 ? step.Duration : 5f;
+            yield return new WaitForSecondsRealtime(duration);
+
+            if (_demonstrationNPC != null)
+            {
+                _demonstrationNPC.Deactivate();
+            }
+        }
+
+        private IEnumerator ExecuteFreePlayStep(TutorialStep step)
+        {
+            HideUI();
+
+            float duration = step.Duration > 0 ? step.Duration : 30f;
+            float elapsed = 0f;
+            _isWaiting = true;
+
+            while (_isWaiting && elapsed < duration)
+            {
+                // Can be ended early via condition or skip
+                if (!string.IsNullOrEmpty(step.ConditionId) && CheckCondition(step.ConditionId))
+                {
+                    _isWaiting = false;
+                    break;
+                }
+
+                elapsed += Time.unscaledDeltaTime;
+                yield return null;
+            }
+        }
+
+        private void ExecuteCheckpointStep(TutorialStep step)
+        {
+            _currentProgress.LastCheckpoint = step.StepId;
+
+            if (_persistProgress)
+                SaveProgress(_currentProgress);
+
+            Debug.Log($"[Tutorial] Checkpoint saved: {step.StepId}");
+        }
+
+        private IEnumerator ExecuteBranchStep(TutorialStep step)
+        {
+            _isWaiting = true;
+            float timeout = step.ConditionTimeout > 0 ? step.ConditionTimeout : 10f;
+            float elapsed = 0f;
+            bool conditionMet = false;
+
+            while (elapsed < timeout)
+            {
+                if (CheckCondition(step.ConditionId))
+                {
+                    conditionMet = true;
+                    break;
+                }
+
+                elapsed += Time.unscaledDeltaTime;
+                yield return null;
+            }
+
+            _isWaiting = false;
+
+            // Branch to appropriate step
+            string nextStepId = conditionMet ? step.SuccessNextStep : step.FailureNextStep;
+
+            if (!string.IsNullOrEmpty(nextStepId))
+            {
+                GoToStep(nextStepId);
+            }
+            else
+            {
+                AdvanceToNextStep();
+            }
+        }
+
+        private void CompleteStep()
+        {
+            if (_currentStep == null)
+                return;
+
+            // Mark completed
+            if (!_currentProgress.CompletedSteps.Contains(_currentStep.StepId))
+                _currentProgress.CompletedSteps.Add(_currentStep.StepId);
+
+            // Fire events
+            _currentStep.OnStepComplete?.Invoke();
+            OnStepCompleted?.Invoke(this, CreateEventArgs());
+
+            Debug.Log($"[Tutorial] Step completed: {_currentStep.Title}");
+
+            AdvanceToNextStep();
+        }
+
+        private void AdvanceToNextStep()
+        {
+            if (_currentSequence == null)
+                return;
+
+            int nextIndex = _currentStepIndex + 1;
+
+            if (nextIndex >= _currentSequence.Steps.Count)
+            {
+                CompleteTutorial();
+            }
+            else
+            {
+                PlayStep(nextIndex);
+            }
+        }
+
+        private void CompleteTutorial()
+        {
+            _currentProgress.IsCompleted = true;
+
+            if (_persistProgress)
+                SaveProgress(_currentProgress);
+
+            HideUI();
+            Time.timeScale = 1f;
+
+            OnTutorialCompleted?.Invoke(this, CreateEventArgs());
+
+            Debug.Log($"[Tutorial] Completed: {_currentSequence?.Name}");
+
+            _isPlaying = false;
+            _currentStep = null;
+        }
+
+        #endregion
+
+        #region Input Detection
+
+        private bool WasInputReceived(TutorialInputType inputType, KeyCode requiredKey)
+        {
+            switch (inputType)
+            {
+                case TutorialInputType.AnyKey:
+                    return Input.anyKeyDown;
+
+                case TutorialInputType.SpecificKey:
+                    return Input.GetKeyDown(requiredKey);
+
+                case TutorialInputType.MouseClick:
+                    return Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1);
+
+                case TutorialInputType.Touch:
+                    return Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began;
+
+                case TutorialInputType.Movement:
+                    return Mathf.Abs(Input.GetAxisRaw("Horizontal")) > 0.1f ||
+                           Mathf.Abs(Input.GetAxisRaw("Vertical")) > 0.1f;
+
+                case TutorialInputType.Button:
+                    return Input.GetButtonDown(_currentStep?.InputAction ?? "Submit");
+
+                case TutorialInputType.Custom:
+                    return CheckCondition(_currentStep?.ConditionId ?? "");
+
+                default:
+                    return false;
+            }
+        }
+
+        private void CheckStepCompletion()
+        {
+            // Additional completion checks while waiting
+            if (_currentStep == null)
+                return;
+
+            // Check if skip was pressed
+            if (_currentStep.CanSkip && Input.GetKeyDown(KeyCode.Escape))
+            {
+                _isWaiting = false;
+            }
+        }
+
+        #endregion
+
+        #region Conditions
+
+        /// <summary>
+        /// Register a condition callback
+        /// </summary>
+        public void RegisterCondition(string conditionId, Func<bool> callback)
+        {
+            _conditionCallbacks[conditionId] = callback;
+        }
+
+        /// <summary>
+        /// Unregister a condition callback
+        /// </summary>
+        public void UnregisterCondition(string conditionId)
+        {
+            _conditionCallbacks.Remove(conditionId);
+        }
+
+        /// <summary>
+        /// Manually trigger condition as met
+        /// </summary>
+        public void TriggerCondition(string conditionId)
+        {
+            if (_isWaiting && _currentStep?.ConditionId == conditionId)
+            {
+                _isWaiting = false;
+            }
+        }
+
+        private bool CheckCondition(string conditionId)
+        {
+            if (string.IsNullOrEmpty(conditionId))
+                return false;
+
+            if (_conditionCallbacks.TryGetValue(conditionId, out var callback))
+            {
+                return callback?.Invoke() ?? false;
+            }
+
+            return false;
+        }
+
+        #endregion
+
+        #region UI
+
+        private void ShowStepUI(TutorialStep step)
+        {
+            if (_tutorialPanel == null)
+                return;
+
+            _tutorialPanel.SetActive(true);
+
+            if (_titleText != null)
+                _titleText.text = step.Title;
+
+            if (_messageText != null)
+                _messageText.text = step.Message;
+
+            if (_skipButton != null)
+                _skipButton.SetActive(step.CanSkip);
+
+            ShowContinuePrompt(false);
+
+            OnMessageDisplayed?.Invoke(step.Title, step.Message);
+        }
+
+        private void ShowContinuePrompt(bool show)
+        {
+            if (_continuePrompt != null)
+                _continuePrompt.SetActive(show);
+        }
+
+        private void HideUI()
+        {
+            if (_tutorialPanel != null)
+                _tutorialPanel.SetActive(false);
+        }
+
+        private void HighlightTarget(string targetName, Vector2 offset, bool showArrow)
+        {
+            ClearHighlights();
+
+            if (string.IsNullOrEmpty(targetName))
+                return;
+
+            // Find target by name
+            GameObject target = GameObject.Find(targetName);
+            if (target == null)
+            {
+                Debug.LogWarning($"[Tutorial] Highlight target not found: {targetName}");
+                return;
+            }
+
+            // Create highlight
+            if (_highlightPrefab != null)
+            {
+                _activeHighlight = Instantiate(_highlightPrefab, target.transform);
+                _activeHighlight.transform.localPosition = offset;
+            }
+
+            // Create arrow
+            if (showArrow && _arrowPrefab != null)
+            {
+                _activeArrow = Instantiate(_arrowPrefab, target.transform);
+                _activeArrow.transform.localPosition = offset + new Vector2(0, 50);
+            }
+        }
+
+        private void ClearHighlights()
+        {
+            if (_activeHighlight != null)
+            {
+                Destroy(_activeHighlight);
+                _activeHighlight = null;
+            }
+
+            if (_activeArrow != null)
+            {
+                Destroy(_activeArrow);
+                _activeArrow = null;
+            }
+        }
+
+        #endregion
+
+        #region Progress Persistence
+
+        private void SaveProgress(TutorialProgress progress)
+        {
+            string key = _saveKeyPrefix + progress.SequenceId;
+            string json = JsonUtility.ToJson(progress);
+            PlayerPrefs.SetString(key, json);
+            PlayerPrefs.Save();
+        }
+
+        private TutorialProgress LoadProgress(string sequenceId)
+        {
+            string key = _saveKeyPrefix + sequenceId;
+            string json = PlayerPrefs.GetString(key, "");
+
+            if (!string.IsNullOrEmpty(json))
+            {
+                try
+                {
+                    return JsonUtility.FromJson<TutorialProgress>(json);
+                }
+                catch
+                {
+                    // Return fresh progress on error
+                }
+            }
+
+            return new TutorialProgress
+            {
+                SequenceId = sequenceId,
+                StartedAt = DateTime.UtcNow
+            };
+        }
+
+        /// <summary>
+        /// Check if tutorial is completed
+        /// </summary>
+        public bool IsTutorialCompleted(string sequenceId)
+        {
+            var progress = LoadProgress(sequenceId);
+            return progress.IsCompleted;
+        }
+
+        /// <summary>
+        /// Reset tutorial progress
+        /// </summary>
+        public void ResetProgress(string sequenceId)
+        {
+            string key = _saveKeyPrefix + sequenceId;
+            PlayerPrefs.DeleteKey(key);
+            PlayerPrefs.Save();
+        }
+
+        /// <summary>
+        /// Reset all tutorial progress
+        /// </summary>
+        public void ResetAllProgress()
+        {
+            // This is a simplified approach - in production you'd track all keys
+            PlayerPrefs.DeleteAll();
+            PlayerPrefs.Save();
+        }
+
+        #endregion
+
+        #region Builder
+
+        private TutorialEventArgs CreateEventArgs()
+        {
+            return new TutorialEventArgs(_currentSequence, _currentStep, _currentStepIndex, _currentProgress);
+        }
+
+        #endregion
+    }
+
+    #region Tutorial Builder
+
+    /// <summary>
+    /// Fluent builder for creating tutorial sequences
+    /// </summary>
+    public class TutorialBuilder
+    {
+        private readonly TutorialSequence _sequence;
+        private TutorialStep _currentStep;
+
+        public TutorialBuilder(string name, string description = "")
+        {
+            _sequence = new TutorialSequence(name, description);
+        }
+
+        /// <summary>
+        /// Add a message step
+        /// </summary>
+        public TutorialBuilder Message(string title, string message, float duration = 3f)
+        {
+            _currentStep = new TutorialStep(title, message, TutorialStepType.Message)
+            {
+                Duration = duration
+            };
+            _sequence.Steps.Add(_currentStep);
+            return this;
+        }
+
+        /// <summary>
+        /// Add a wait for input step
+        /// </summary>
+        public TutorialBuilder WaitForInput(string title, string message, TutorialInputType inputType = TutorialInputType.AnyKey)
+        {
+            _currentStep = new TutorialStep(title, message, TutorialStepType.WaitForInput)
+            {
+                InputType = inputType
+            };
+            _sequence.Steps.Add(_currentStep);
+            return this;
+        }
+
+        /// <summary>
+        /// Add a wait for key step
+        /// </summary>
+        public TutorialBuilder WaitForKey(string title, string message, KeyCode key)
+        {
+            _currentStep = new TutorialStep(title, message, TutorialStepType.WaitForInput)
+            {
+                InputType = TutorialInputType.SpecificKey,
+                RequiredKey = key
+            };
+            _sequence.Steps.Add(_currentStep);
+            return this;
+        }
+
+        /// <summary>
+        /// Add a wait for condition step
+        /// </summary>
+        public TutorialBuilder WaitForCondition(string title, string message, string conditionId, float timeout = 30f)
+        {
+            _currentStep = new TutorialStep(title, message, TutorialStepType.WaitForCondition)
+            {
+                ConditionId = conditionId,
+                ConditionTimeout = timeout
+            };
+            _sequence.Steps.Add(_currentStep);
+            return this;
+        }
+
+        /// <summary>
+        /// Add a highlight UI step
+        /// </summary>
+        public TutorialBuilder Highlight(string title, string message, string targetName, float duration = 5f)
+        {
+            _currentStep = new TutorialStep(title, message, TutorialStepType.HighlightUI)
+            {
+                HighlightTarget = targetName,
+                Duration = duration
+            };
+            _sequence.Steps.Add(_currentStep);
+            return this;
+        }
+
+        /// <summary>
+        /// Add a demonstration step
+        /// </summary>
+        public TutorialBuilder Demonstrate(string title, string message, float duration = 5f)
+        {
+            _currentStep = new TutorialStep(title, message, TutorialStepType.DemonstratAction)
+            {
+                Duration = duration
+            };
+            _sequence.Steps.Add(_currentStep);
+            return this;
+        }
+
+        /// <summary>
+        /// Add a free play step
+        /// </summary>
+        public TutorialBuilder FreePlay(string title, string message, float duration = 30f, string endCondition = null)
+        {
+            _currentStep = new TutorialStep(title, message, TutorialStepType.FreePlay)
+            {
+                Duration = duration,
+                ConditionId = endCondition
+            };
+            _sequence.Steps.Add(_currentStep);
+            return this;
+        }
+
+        /// <summary>
+        /// Add a checkpoint
+        /// </summary>
+        public TutorialBuilder Checkpoint(string checkpointId = null)
+        {
+            _currentStep = new TutorialStep("Checkpoint", "", TutorialStepType.Checkpoint)
+            {
+                StepId = checkpointId ?? Guid.NewGuid().ToString("N").Substring(0, 8)
+            };
+            _sequence.Steps.Add(_currentStep);
+            return this;
+        }
+
+        /// <summary>
+        /// Make current step non-skippable
+        /// </summary>
+        public TutorialBuilder NoSkip()
+        {
+            if (_currentStep != null)
+                _currentStep.CanSkip = false;
+            return this;
+        }
+
+        /// <summary>
+        /// Pause game during current step
+        /// </summary>
+        public TutorialBuilder PauseGame()
+        {
+            if (_currentStep != null)
+                _currentStep.PauseGame = true;
+            return this;
+        }
+
+        /// <summary>
+        /// Add delay before current step
+        /// </summary>
+        public TutorialBuilder WithDelay(float delay)
+        {
+            if (_currentStep != null)
+                _currentStep.Delay = delay;
+            return this;
+        }
+
+        /// <summary>
+        /// Set auto-advance mode
+        /// </summary>
+        public TutorialBuilder AutoAdvance(bool auto)
+        {
+            _sequence.AutoAdvance = auto;
+            return this;
+        }
+
+        /// <summary>
+        /// Build the tutorial sequence
+        /// </summary>
+        public TutorialSequence Build()
+        {
+            return _sequence;
+        }
+    }
+
+    #endregion
+}

@@ -1,0 +1,1262 @@
+// ============================================================================
+// Deskillz SDK - Ghost Replay System
+// Record and replay player performances
+// ============================================================================
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
+using UnityEngine;
+
+namespace Deskillz.SDK.NPC
+{
+    /// <summary>
+    /// Single frame of recorded data
+    /// </summary>
+    [Serializable]
+    public class GhostFrame
+    {
+        public float Timestamp;
+        public Vector3 Position;
+        public Quaternion Rotation;
+        public Vector3 Velocity;
+        public Vector2 Input;
+        public int AnimationState;
+        public float[] CustomFloats;
+        public int[] CustomInts;
+        public bool[] CustomBools;
+
+        public GhostFrame()
+        {
+            CustomFloats = new float[8];
+            CustomInts = new int[4];
+            CustomBools = new bool[8];
+        }
+
+        public GhostFrame Clone()
+        {
+            return new GhostFrame
+            {
+                Timestamp = Timestamp,
+                Position = Position,
+                Rotation = Rotation,
+                Velocity = Velocity,
+                Input = Input,
+                AnimationState = AnimationState,
+                CustomFloats = (float[])CustomFloats.Clone(),
+                CustomInts = (int[])CustomInts.Clone(),
+                CustomBools = (bool[])CustomBools.Clone()
+            };
+        }
+
+        /// <summary>
+        /// Interpolate between two frames
+        /// </summary>
+        public static GhostFrame Lerp(GhostFrame a, GhostFrame b, float t)
+        {
+            return new GhostFrame
+            {
+                Timestamp = Mathf.Lerp(a.Timestamp, b.Timestamp, t),
+                Position = Vector3.Lerp(a.Position, b.Position, t),
+                Rotation = Quaternion.Slerp(a.Rotation, b.Rotation, t),
+                Velocity = Vector3.Lerp(a.Velocity, b.Velocity, t),
+                Input = Vector2.Lerp(a.Input, b.Input, t),
+                AnimationState = t < 0.5f ? a.AnimationState : b.AnimationState,
+                CustomFloats = LerpFloatArray(a.CustomFloats, b.CustomFloats, t),
+                CustomInts = t < 0.5f ? a.CustomInts : b.CustomInts,
+                CustomBools = t < 0.5f ? a.CustomBools : b.CustomBools
+            };
+        }
+
+        private static float[] LerpFloatArray(float[] a, float[] b, float t)
+        {
+            int len = Mathf.Min(a.Length, b.Length);
+            float[] result = new float[len];
+            for (int i = 0; i < len; i++)
+                result[i] = Mathf.Lerp(a[i], b[i], t);
+            return result;
+        }
+    }
+
+    /// <summary>
+    /// Event recorded during gameplay
+    /// </summary>
+    [Serializable]
+    public class GhostEvent
+    {
+        public float Timestamp;
+        public string EventType;
+        public string Data;
+        public Vector3 Position;
+
+        public GhostEvent() { }
+
+        public GhostEvent(float timestamp, string type, string data = null, Vector3? position = null)
+        {
+            Timestamp = timestamp;
+            EventType = type;
+            Data = data;
+            Position = position ?? Vector3.zero;
+        }
+    }
+
+    /// <summary>
+    /// Metadata for a ghost recording
+    /// </summary>
+    [Serializable]
+    public class GhostMetadata
+    {
+        public string RecordingId;
+        public string PlayerId;
+        public string PlayerName;
+        public string GameId;
+        public string GameMode;
+        public string MapId;
+        public int FinalScore;
+        public float TotalTime;
+        public DateTime RecordedAt;
+        public int FrameCount;
+        public float RecordingRate;
+        public int Version;
+        public Dictionary<string, string> CustomData;
+
+        public GhostMetadata()
+        {
+            RecordingId = Guid.NewGuid().ToString("N");
+            RecordedAt = DateTime.UtcNow;
+            Version = 1;
+            CustomData = new Dictionary<string, string>();
+        }
+    }
+
+    /// <summary>
+    /// Complete ghost recording
+    /// </summary>
+    [Serializable]
+    public class GhostRecording
+    {
+        public GhostMetadata Metadata;
+        public List<GhostFrame> Frames;
+        public List<GhostEvent> Events;
+
+        public GhostRecording()
+        {
+            Metadata = new GhostMetadata();
+            Frames = new List<GhostFrame>();
+            Events = new List<GhostEvent>();
+        }
+
+        public float Duration => Frames.Count > 0 ? Frames[Frames.Count - 1].Timestamp : 0f;
+
+        /// <summary>
+        /// Get frame at specific time with interpolation
+        /// </summary>
+        public GhostFrame GetFrameAtTime(float time)
+        {
+            if (Frames.Count == 0)
+                return null;
+
+            if (time <= 0 || Frames.Count == 1)
+                return Frames[0].Clone();
+
+            if (time >= Duration)
+                return Frames[Frames.Count - 1].Clone();
+
+            // Binary search for closest frames
+            int low = 0;
+            int high = Frames.Count - 1;
+
+            while (low < high - 1)
+            {
+                int mid = (low + high) / 2;
+                if (Frames[mid].Timestamp <= time)
+                    low = mid;
+                else
+                    high = mid;
+            }
+
+            // Interpolate between frames
+            GhostFrame frameA = Frames[low];
+            GhostFrame frameB = Frames[high];
+            float t = (time - frameA.Timestamp) / (frameB.Timestamp - frameA.Timestamp);
+
+            return GhostFrame.Lerp(frameA, frameB, t);
+        }
+
+        /// <summary>
+        /// Get events within time range
+        /// </summary>
+        public List<GhostEvent> GetEventsInRange(float startTime, float endTime)
+        {
+            var result = new List<GhostEvent>();
+            foreach (var evt in Events)
+            {
+                if (evt.Timestamp >= startTime && evt.Timestamp <= endTime)
+                    result.Add(evt);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Trim recording to time range
+        /// </summary>
+        public GhostRecording Trim(float startTime, float endTime)
+        {
+            var trimmed = new GhostRecording();
+            trimmed.Metadata = Metadata;
+
+            float offset = startTime;
+
+            foreach (var frame in Frames)
+            {
+                if (frame.Timestamp >= startTime && frame.Timestamp <= endTime)
+                {
+                    var newFrame = frame.Clone();
+                    newFrame.Timestamp -= offset;
+                    trimmed.Frames.Add(newFrame);
+                }
+            }
+
+            foreach (var evt in Events)
+            {
+                if (evt.Timestamp >= startTime && evt.Timestamp <= endTime)
+                {
+                    trimmed.Events.Add(new GhostEvent(
+                        evt.Timestamp - offset,
+                        evt.EventType,
+                        evt.Data,
+                        evt.Position
+                    ));
+                }
+            }
+
+            trimmed.Metadata.TotalTime = endTime - startTime;
+            trimmed.Metadata.FrameCount = trimmed.Frames.Count;
+
+            return trimmed;
+        }
+    }
+
+    /// <summary>
+    /// Playback state
+    /// </summary>
+    public enum PlaybackState
+    {
+        Stopped,
+        Playing,
+        Paused,
+        Finished
+    }
+
+    /// <summary>
+    /// Event args for playback events
+    /// </summary>
+    public class PlaybackEventArgs : EventArgs
+    {
+        public GhostEvent Event { get; }
+        public float PlaybackTime { get; }
+
+        public PlaybackEventArgs(GhostEvent evt, float time)
+        {
+            Event = evt;
+            PlaybackTime = time;
+        }
+    }
+
+    /// <summary>
+    /// Ghost Recorder - Records player movement and actions
+    /// </summary>
+    public class GhostRecorder : MonoBehaviour
+    {
+        [Header("Recording Settings")]
+        [SerializeField] private float _recordingRate = 30f;
+        [SerializeField] private int _maxFrames = 18000; // 10 minutes at 30fps
+        [SerializeField] private bool _compressRecording = true;
+
+        [Header("Target")]
+        [SerializeField] private Transform _targetTransform;
+        [SerializeField] private Rigidbody _targetRigidbody;
+
+        // Recording state
+        private GhostRecording _currentRecording;
+        private float _recordingTimer;
+        private float _recordInterval;
+        private bool _isRecording;
+        private float _startTime;
+
+        // Callbacks for custom data
+        private Func<Vector2> _inputProvider;
+        private Func<int> _animationStateProvider;
+        private Func<float[]> _customFloatsProvider;
+        private Func<int[]> _customIntsProvider;
+        private Func<bool[]> _customBoolsProvider;
+
+        // Events
+        public event Action<GhostRecording> OnRecordingComplete;
+        public event Action<GhostFrame> OnFrameRecorded;
+
+        // Properties
+        public bool IsRecording => _isRecording;
+        public float RecordingTime => _isRecording ? Time.time - _startTime : 0f;
+        public int FrameCount => _currentRecording?.Frames.Count ?? 0;
+        public GhostRecording CurrentRecording => _currentRecording;
+
+        private void Awake()
+        {
+            _recordInterval = 1f / _recordingRate;
+
+            if (_targetTransform == null)
+                _targetTransform = transform;
+        }
+
+        private void Update()
+        {
+            if (!_isRecording)
+                return;
+
+            _recordingTimer += Time.deltaTime;
+
+            if (_recordingTimer >= _recordInterval)
+            {
+                _recordingTimer -= _recordInterval;
+                RecordFrame();
+            }
+        }
+
+        /// <summary>
+        /// Set the target to record
+        /// </summary>
+        public void SetTarget(Transform target, Rigidbody rigidbody = null)
+        {
+            _targetTransform = target;
+            _targetRigidbody = rigidbody;
+        }
+
+        /// <summary>
+        /// Set input provider callback
+        /// </summary>
+        public void SetInputProvider(Func<Vector2> provider)
+        {
+            _inputProvider = provider;
+        }
+
+        /// <summary>
+        /// Set animation state provider callback
+        /// </summary>
+        public void SetAnimationStateProvider(Func<int> provider)
+        {
+            _animationStateProvider = provider;
+        }
+
+        /// <summary>
+        /// Set custom data providers
+        /// </summary>
+        public void SetCustomDataProviders(
+            Func<float[]> floats = null,
+            Func<int[]> ints = null,
+            Func<bool[]> bools = null)
+        {
+            _customFloatsProvider = floats;
+            _customIntsProvider = ints;
+            _customBoolsProvider = bools;
+        }
+
+        /// <summary>
+        /// Start recording
+        /// </summary>
+        public void StartRecording(GhostMetadata metadata = null)
+        {
+            if (_isRecording)
+                StopRecording();
+
+            _currentRecording = new GhostRecording();
+            _currentRecording.Metadata = metadata ?? new GhostMetadata();
+            _currentRecording.Metadata.RecordingRate = _recordingRate;
+
+            _startTime = Time.time;
+            _recordingTimer = 0f;
+            _isRecording = true;
+
+            Debug.Log("[Ghost] Recording started");
+        }
+
+        /// <summary>
+        /// Stop recording
+        /// </summary>
+        public GhostRecording StopRecording()
+        {
+            if (!_isRecording)
+                return null;
+
+            _isRecording = false;
+
+            _currentRecording.Metadata.TotalTime = Time.time - _startTime;
+            _currentRecording.Metadata.FrameCount = _currentRecording.Frames.Count;
+
+            Debug.Log($"[Ghost] Recording stopped: {_currentRecording.Frames.Count} frames, {_currentRecording.Metadata.TotalTime:F2}s");
+
+            OnRecordingComplete?.Invoke(_currentRecording);
+
+            return _currentRecording;
+        }
+
+        /// <summary>
+        /// Record a single frame
+        /// </summary>
+        private void RecordFrame()
+        {
+            if (_currentRecording.Frames.Count >= _maxFrames)
+            {
+                Debug.LogWarning("[Ghost] Max frames reached, stopping recording");
+                StopRecording();
+                return;
+            }
+
+            var frame = new GhostFrame
+            {
+                Timestamp = Time.time - _startTime,
+                Position = _targetTransform.position,
+                Rotation = _targetTransform.rotation,
+                Velocity = _targetRigidbody != null ? _targetRigidbody.linearVelocity : Vector3.zero,
+                Input = _inputProvider?.Invoke() ?? Vector2.zero,
+                AnimationState = _animationStateProvider?.Invoke() ?? 0
+            };
+
+            // Custom data
+            if (_customFloatsProvider != null)
+            {
+                var floats = _customFloatsProvider();
+                if (floats != null)
+                    Array.Copy(floats, frame.CustomFloats, Mathf.Min(floats.Length, frame.CustomFloats.Length));
+            }
+
+            if (_customIntsProvider != null)
+            {
+                var ints = _customIntsProvider();
+                if (ints != null)
+                    Array.Copy(ints, frame.CustomInts, Mathf.Min(ints.Length, frame.CustomInts.Length));
+            }
+
+            if (_customBoolsProvider != null)
+            {
+                var bools = _customBoolsProvider();
+                if (bools != null)
+                    Array.Copy(bools, frame.CustomBools, Mathf.Min(bools.Length, frame.CustomBools.Length));
+            }
+
+            _currentRecording.Frames.Add(frame);
+            OnFrameRecorded?.Invoke(frame);
+        }
+
+        /// <summary>
+        /// Record an event
+        /// </summary>
+        public void RecordEvent(string eventType, string data = null)
+        {
+            if (!_isRecording)
+                return;
+
+            var evt = new GhostEvent(
+                Time.time - _startTime,
+                eventType,
+                data,
+                _targetTransform.position
+            );
+
+            _currentRecording.Events.Add(evt);
+        }
+
+        /// <summary>
+        /// Update final score
+        /// </summary>
+        public void SetFinalScore(int score)
+        {
+            if (_currentRecording != null)
+                _currentRecording.Metadata.FinalScore = score;
+        }
+    }
+
+    /// <summary>
+    /// Ghost Player - Plays back recorded ghost data
+    /// </summary>
+    public class GhostPlayer : MonoBehaviour
+    {
+        [Header("Playback Settings")]
+        [SerializeField] private float _playbackSpeed = 1f;
+        [SerializeField] private bool _loop = false;
+        [SerializeField] private bool _interpolate = true;
+
+        [Header("Visual")]
+        [SerializeField] private float _ghostAlpha = 0.5f;
+        [SerializeField] private Color _ghostTint = new Color(0.5f, 0.8f, 1f, 0.5f);
+        [SerializeField] private bool _showTrail = true;
+        [SerializeField] private TrailRenderer _trailRenderer;
+
+        // Playback state
+        private GhostRecording _recording;
+        private PlaybackState _state = PlaybackState.Stopped;
+        private float _playbackTime;
+        private int _lastEventIndex;
+
+        // Cached components
+        private Renderer[] _renderers;
+        private MaterialPropertyBlock _propertyBlock;
+
+        // Events
+        public event Action OnPlaybackStarted;
+        public event Action OnPlaybackPaused;
+        public event Action OnPlaybackStopped;
+        public event Action OnPlaybackFinished;
+        public event EventHandler<PlaybackEventArgs> OnGhostEvent;
+
+        // Properties
+        public PlaybackState State => _state;
+        public float PlaybackTime => _playbackTime;
+        public float PlaybackSpeed
+        {
+            get => _playbackSpeed;
+            set => _playbackSpeed = Mathf.Max(0.1f, value);
+        }
+        public bool IsPlaying => _state == PlaybackState.Playing;
+        public float Progress => _recording != null && _recording.Duration > 0 
+            ? _playbackTime / _recording.Duration 
+            : 0f;
+        public GhostRecording Recording => _recording;
+
+        private void Awake()
+        {
+            _renderers = GetComponentsInChildren<Renderer>();
+            _propertyBlock = new MaterialPropertyBlock();
+            ApplyGhostVisuals();
+        }
+
+        private void Update()
+        {
+            if (_state != PlaybackState.Playing || _recording == null)
+                return;
+
+            // Advance playback time
+            _playbackTime += Time.deltaTime * _playbackSpeed;
+
+            // Check for events
+            ProcessEvents();
+
+            // Get and apply frame
+            var frame = _recording.GetFrameAtTime(_playbackTime);
+            if (frame != null)
+            {
+                ApplyFrame(frame);
+            }
+
+            // Check for end
+            if (_playbackTime >= _recording.Duration)
+            {
+                if (_loop)
+                {
+                    _playbackTime = 0f;
+                    _lastEventIndex = 0;
+                }
+                else
+                {
+                    _state = PlaybackState.Finished;
+                    OnPlaybackFinished?.Invoke();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Load a recording
+        /// </summary>
+        public void LoadRecording(GhostRecording recording)
+        {
+            _recording = recording;
+            _playbackTime = 0f;
+            _lastEventIndex = 0;
+            _state = PlaybackState.Stopped;
+
+            Debug.Log($"[Ghost] Loaded recording: {recording.Metadata.RecordingId}, {recording.Frames.Count} frames");
+        }
+
+        /// <summary>
+        /// Start playback
+        /// </summary>
+        public void Play()
+        {
+            if (_recording == null)
+            {
+                Debug.LogWarning("[Ghost] No recording loaded");
+                return;
+            }
+
+            _state = PlaybackState.Playing;
+            OnPlaybackStarted?.Invoke();
+
+            if (_trailRenderer != null)
+                _trailRenderer.Clear();
+        }
+
+        /// <summary>
+        /// Pause playback
+        /// </summary>
+        public void Pause()
+        {
+            if (_state == PlaybackState.Playing)
+            {
+                _state = PlaybackState.Paused;
+                OnPlaybackPaused?.Invoke();
+            }
+        }
+
+        /// <summary>
+        /// Resume playback
+        /// </summary>
+        public void Resume()
+        {
+            if (_state == PlaybackState.Paused)
+            {
+                _state = PlaybackState.Playing;
+            }
+        }
+
+        /// <summary>
+        /// Stop playback
+        /// </summary>
+        public void Stop()
+        {
+            _state = PlaybackState.Stopped;
+            _playbackTime = 0f;
+            _lastEventIndex = 0;
+            OnPlaybackStopped?.Invoke();
+        }
+
+        /// <summary>
+        /// Seek to time
+        /// </summary>
+        public void Seek(float time)
+        {
+            _playbackTime = Mathf.Clamp(time, 0f, _recording?.Duration ?? 0f);
+            UpdateEventIndex();
+
+            var frame = _recording?.GetFrameAtTime(_playbackTime);
+            if (frame != null)
+                ApplyFrame(frame);
+        }
+
+        /// <summary>
+        /// Seek by progress (0-1)
+        /// </summary>
+        public void SeekProgress(float progress)
+        {
+            if (_recording != null)
+                Seek(progress * _recording.Duration);
+        }
+
+        private void ApplyFrame(GhostFrame frame)
+        {
+            if (_interpolate && _state == PlaybackState.Playing)
+            {
+                // Smooth interpolation
+                transform.position = Vector3.Lerp(transform.position, frame.Position, Time.deltaTime * 20f);
+                transform.rotation = Quaternion.Slerp(transform.rotation, frame.Rotation, Time.deltaTime * 20f);
+            }
+            else
+            {
+                transform.position = frame.Position;
+                transform.rotation = frame.Rotation;
+            }
+        }
+
+        private void ProcessEvents()
+        {
+            if (_recording.Events == null || _lastEventIndex >= _recording.Events.Count)
+                return;
+
+            while (_lastEventIndex < _recording.Events.Count)
+            {
+                var evt = _recording.Events[_lastEventIndex];
+                if (evt.Timestamp <= _playbackTime)
+                {
+                    OnGhostEvent?.Invoke(this, new PlaybackEventArgs(evt, _playbackTime));
+                    _lastEventIndex++;
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+
+        private void UpdateEventIndex()
+        {
+            _lastEventIndex = 0;
+            if (_recording?.Events == null)
+                return;
+
+            for (int i = 0; i < _recording.Events.Count; i++)
+            {
+                if (_recording.Events[i].Timestamp > _playbackTime)
+                    break;
+                _lastEventIndex = i + 1;
+            }
+        }
+
+        private void ApplyGhostVisuals()
+        {
+            foreach (var renderer in _renderers)
+            {
+                renderer.GetPropertyBlock(_propertyBlock);
+                _propertyBlock.SetColor("_Color", _ghostTint);
+                renderer.SetPropertyBlock(_propertyBlock);
+
+                // Make transparent if possible
+                foreach (var mat in renderer.materials)
+                {
+                    if (mat.HasProperty("_Color"))
+                    {
+                        Color c = mat.color;
+                        c.a = _ghostAlpha;
+                        mat.color = c;
+                    }
+                }
+            }
+
+            if (_trailRenderer != null)
+            {
+                _trailRenderer.enabled = _showTrail;
+                _trailRenderer.startColor = _ghostTint;
+                _trailRenderer.endColor = new Color(_ghostTint.r, _ghostTint.g, _ghostTint.b, 0f);
+            }
+        }
+
+        /// <summary>
+        /// Set ghost visual properties
+        /// </summary>
+        public void SetGhostVisuals(Color tint, float alpha, bool showTrail)
+        {
+            _ghostTint = tint;
+            _ghostAlpha = alpha;
+            _showTrail = showTrail;
+            ApplyGhostVisuals();
+        }
+    }
+
+    /// <summary>
+    /// Ghost Replay System Manager
+    /// </summary>
+    public class GhostReplaySystem : MonoBehaviour
+    {
+        private static GhostReplaySystem _instance;
+        public static GhostReplaySystem Instance => _instance;
+
+        [Header("Settings")]
+        [SerializeField] private string _saveDirectory = "GhostReplays";
+        [SerializeField] private int _maxStoredReplays = 50;
+        [SerializeField] private bool _autoLoadBestGhost = true;
+
+        [Header("Prefabs")]
+        [SerializeField] private GameObject _ghostPrefab;
+
+        // Storage
+        private readonly Dictionary<string, GhostRecording> _loadedRecordings = new Dictionary<string, GhostRecording>();
+        private readonly List<GhostPlayer> _activeGhosts = new List<GhostPlayer>();
+        private GhostRecorder _activeRecorder;
+
+        // Events
+        public event Action<GhostRecording> OnRecordingSaved;
+        public event Action<GhostRecording> OnRecordingLoaded;
+        public event Action<GhostPlayer> OnGhostSpawned;
+
+        private void Awake()
+        {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            // Create save directory
+            string path = GetSavePath();
+            if (!Directory.Exists(path))
+                Directory.CreateDirectory(path);
+        }
+
+        private void OnDestroy()
+        {
+            if (_instance == this)
+                _instance = null;
+        }
+
+        #region Recording
+
+        /// <summary>
+        /// Start recording a target
+        /// </summary>
+        public GhostRecorder StartRecording(Transform target, GhostMetadata metadata = null)
+        {
+            if (_activeRecorder != null)
+                StopRecording();
+
+            _activeRecorder = target.gameObject.AddComponent<GhostRecorder>();
+            _activeRecorder.SetTarget(target, target.GetComponent<Rigidbody>());
+            _activeRecorder.StartRecording(metadata);
+
+            return _activeRecorder;
+        }
+
+        /// <summary>
+        /// Stop current recording
+        /// </summary>
+        public GhostRecording StopRecording(bool save = true)
+        {
+            if (_activeRecorder == null)
+                return null;
+
+            var recording = _activeRecorder.StopRecording();
+            Destroy(_activeRecorder);
+            _activeRecorder = null;
+
+            if (save && recording != null)
+            {
+                SaveRecording(recording);
+            }
+
+            return recording;
+        }
+
+        /// <summary>
+        /// Get current recorder
+        /// </summary>
+        public GhostRecorder GetRecorder()
+        {
+            return _activeRecorder;
+        }
+
+        #endregion
+
+        #region Playback
+
+        /// <summary>
+        /// Spawn a ghost from recording
+        /// </summary>
+        public GhostPlayer SpawnGhost(GhostRecording recording, Vector3? startPosition = null)
+        {
+            if (recording == null || _ghostPrefab == null)
+                return null;
+
+            Vector3 spawnPos = startPosition ?? 
+                (recording.Frames.Count > 0 ? recording.Frames[0].Position : Vector3.zero);
+
+            GameObject ghostObj = Instantiate(_ghostPrefab, spawnPos, Quaternion.identity);
+            ghostObj.name = $"Ghost_{recording.Metadata.PlayerName}";
+
+            var player = ghostObj.GetComponent<GhostPlayer>();
+            if (player == null)
+                player = ghostObj.AddComponent<GhostPlayer>();
+
+            player.LoadRecording(recording);
+            _activeGhosts.Add(player);
+
+            OnGhostSpawned?.Invoke(player);
+
+            return player;
+        }
+
+        /// <summary>
+        /// Spawn ghost from saved file
+        /// </summary>
+        public GhostPlayer SpawnGhost(string recordingId, Vector3? startPosition = null)
+        {
+            var recording = LoadRecording(recordingId);
+            return recording != null ? SpawnGhost(recording, startPosition) : null;
+        }
+
+        /// <summary>
+        /// Despawn a ghost
+        /// </summary>
+        public void DespawnGhost(GhostPlayer ghost)
+        {
+            if (ghost != null)
+            {
+                _activeGhosts.Remove(ghost);
+                Destroy(ghost.gameObject);
+            }
+        }
+
+        /// <summary>
+        /// Despawn all ghosts
+        /// </summary>
+        public void DespawnAllGhosts()
+        {
+            foreach (var ghost in _activeGhosts)
+            {
+                if (ghost != null)
+                    Destroy(ghost.gameObject);
+            }
+            _activeGhosts.Clear();
+        }
+
+        /// <summary>
+        /// Get all active ghosts
+        /// </summary>
+        public List<GhostPlayer> GetActiveGhosts()
+        {
+            _activeGhosts.RemoveAll(g => g == null);
+            return new List<GhostPlayer>(_activeGhosts);
+        }
+
+        /// <summary>
+        /// Play all ghosts
+        /// </summary>
+        public void PlayAllGhosts()
+        {
+            foreach (var ghost in _activeGhosts)
+                ghost?.Play();
+        }
+
+        /// <summary>
+        /// Pause all ghosts
+        /// </summary>
+        public void PauseAllGhosts()
+        {
+            foreach (var ghost in _activeGhosts)
+                ghost?.Pause();
+        }
+
+        /// <summary>
+        /// Stop all ghosts
+        /// </summary>
+        public void StopAllGhosts()
+        {
+            foreach (var ghost in _activeGhosts)
+                ghost?.Stop();
+        }
+
+        #endregion
+
+        #region Storage
+
+        /// <summary>
+        /// Save recording to disk
+        /// </summary>
+        public bool SaveRecording(GhostRecording recording, string customId = null)
+        {
+            if (recording == null)
+                return false;
+
+            string id = customId ?? recording.Metadata.RecordingId;
+            string path = Path.Combine(GetSavePath(), $"{id}.ghost");
+
+            try
+            {
+                string json = JsonUtility.ToJson(new SerializableRecording(recording));
+                byte[] data = System.Text.Encoding.UTF8.GetBytes(json);
+
+                // Compress
+                using (FileStream fs = new FileStream(path, FileMode.Create))
+                using (GZipStream gz = new GZipStream(fs, CompressionMode.Compress))
+                {
+                    gz.Write(data, 0, data.Length);
+                }
+
+                _loadedRecordings[id] = recording;
+                OnRecordingSaved?.Invoke(recording);
+
+                Debug.Log($"[Ghost] Saved recording: {path}");
+                CleanupOldRecordings();
+
+                return true;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[Ghost] Failed to save recording: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Load recording from disk
+        /// </summary>
+        public GhostRecording LoadRecording(string recordingId)
+        {
+            // Check cache first
+            if (_loadedRecordings.TryGetValue(recordingId, out var cached))
+                return cached;
+
+            string path = Path.Combine(GetSavePath(), $"{recordingId}.ghost");
+            if (!File.Exists(path))
+            {
+                Debug.LogWarning($"[Ghost] Recording not found: {recordingId}");
+                return null;
+            }
+
+            try
+            {
+                using (FileStream fs = new FileStream(path, FileMode.Open))
+                using (GZipStream gz = new GZipStream(fs, CompressionMode.Decompress))
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    gz.CopyTo(ms);
+                    string json = System.Text.Encoding.UTF8.GetString(ms.ToArray());
+                    var serializable = JsonUtility.FromJson<SerializableRecording>(json);
+                    var recording = serializable.ToRecording();
+
+                    _loadedRecordings[recordingId] = recording;
+                    OnRecordingLoaded?.Invoke(recording);
+
+                    Debug.Log($"[Ghost] Loaded recording: {recordingId}");
+                    return recording;
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[Ghost] Failed to load recording: {e.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Delete a recording
+        /// </summary>
+        public bool DeleteRecording(string recordingId)
+        {
+            string path = Path.Combine(GetSavePath(), $"{recordingId}.ghost");
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+                _loadedRecordings.Remove(recordingId);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Get list of all saved recordings
+        /// </summary>
+        public List<GhostMetadata> GetSavedRecordings()
+        {
+            var result = new List<GhostMetadata>();
+            string path = GetSavePath();
+
+            if (!Directory.Exists(path))
+                return result;
+
+            foreach (var file in Directory.GetFiles(path, "*.ghost"))
+            {
+                try
+                {
+                    string id = Path.GetFileNameWithoutExtension(file);
+                    var recording = LoadRecording(id);
+                    if (recording != null)
+                        result.Add(recording.Metadata);
+                }
+                catch
+                {
+                    // Skip invalid files
+                }
+            }
+
+            // Sort by score descending
+            result.Sort((a, b) => b.FinalScore.CompareTo(a.FinalScore));
+
+            return result;
+        }
+
+        /// <summary>
+        /// Get best recording for game/map
+        /// </summary>
+        public GhostRecording GetBestRecording(string gameId, string mapId = null)
+        {
+            var recordings = GetSavedRecordings();
+            GhostMetadata best = null;
+
+            foreach (var meta in recordings)
+            {
+                if (meta.GameId != gameId)
+                    continue;
+
+                if (mapId != null && meta.MapId != mapId)
+                    continue;
+
+                if (best == null || meta.FinalScore > best.FinalScore)
+                    best = meta;
+            }
+
+            return best != null ? LoadRecording(best.RecordingId) : null;
+        }
+
+        private string GetSavePath()
+        {
+            return Path.Combine(Application.persistentDataPath, _saveDirectory);
+        }
+
+        private void CleanupOldRecordings()
+        {
+            var recordings = GetSavedRecordings();
+
+            if (recordings.Count <= _maxStoredReplays)
+                return;
+
+            // Sort by date, keep newest
+            recordings.Sort((a, b) => b.RecordedAt.CompareTo(a.RecordedAt));
+
+            for (int i = _maxStoredReplays; i < recordings.Count; i++)
+            {
+                DeleteRecording(recordings[i].RecordingId);
+            }
+        }
+
+        #endregion
+
+        #region Comparison
+
+        /// <summary>
+        /// Compare player position to ghost at current time
+        /// </summary>
+        public float GetDistanceToGhost(Transform player, GhostPlayer ghost)
+        {
+            if (player == null || ghost == null)
+                return float.MaxValue;
+
+            return Vector3.Distance(player.position, ghost.transform.position);
+        }
+
+        /// <summary>
+        /// Check if player is ahead of ghost
+        /// </summary>
+        public bool IsPlayerAhead(Transform player, GhostPlayer ghost, Vector3 finishDirection)
+        {
+            if (player == null || ghost == null)
+                return false;
+
+            Vector3 diff = player.position - ghost.transform.position;
+            return Vector3.Dot(diff, finishDirection) > 0;
+        }
+
+        /// <summary>
+        /// Get time difference (positive = player ahead, negative = ghost ahead)
+        /// </summary>
+        public float GetTimeDifference(Transform player, GhostPlayer ghost, float currentTime)
+        {
+            if (ghost?.Recording == null)
+                return 0f;
+
+            // Find ghost frame closest to player position
+            float closestDistance = float.MaxValue;
+            float closestTime = 0f;
+
+            foreach (var frame in ghost.Recording.Frames)
+            {
+                float dist = Vector3.Distance(player.position, frame.Position);
+                if (dist < closestDistance)
+                {
+                    closestDistance = dist;
+                    closestTime = frame.Timestamp;
+                }
+            }
+
+            return closestTime - currentTime;
+        }
+
+        #endregion
+    }
+
+    #region Serialization
+
+    /// <summary>
+    /// Serializable wrapper for GhostRecording
+    /// </summary>
+    [Serializable]
+    public class SerializableRecording
+    {
+        public string MetadataJson;
+        public List<SerializableFrame> Frames;
+        public List<GhostEvent> Events;
+
+        public SerializableRecording() { }
+
+        public SerializableRecording(GhostRecording recording)
+        {
+            MetadataJson = JsonUtility.ToJson(recording.Metadata);
+            Frames = new List<SerializableFrame>();
+            foreach (var frame in recording.Frames)
+                Frames.Add(new SerializableFrame(frame));
+            Events = new List<GhostEvent>(recording.Events);
+        }
+
+        public GhostRecording ToRecording()
+        {
+            var recording = new GhostRecording
+            {
+                Metadata = JsonUtility.FromJson<GhostMetadata>(MetadataJson),
+                Events = new List<GhostEvent>(Events)
+            };
+
+            foreach (var sf in Frames)
+                recording.Frames.Add(sf.ToFrame());
+
+            return recording;
+        }
+    }
+
+    /// <summary>
+    /// Serializable wrapper for GhostFrame
+    /// </summary>
+    [Serializable]
+    public class SerializableFrame
+    {
+        public float Timestamp;
+        public float PosX, PosY, PosZ;
+        public float RotX, RotY, RotZ, RotW;
+        public float VelX, VelY, VelZ;
+        public float InputX, InputY;
+        public int AnimState;
+        public float[] CustomFloats;
+        public int[] CustomInts;
+        public bool[] CustomBools;
+
+        public SerializableFrame() { }
+
+        public SerializableFrame(GhostFrame frame)
+        {
+            Timestamp = frame.Timestamp;
+            PosX = frame.Position.x;
+            PosY = frame.Position.y;
+            PosZ = frame.Position.z;
+            RotX = frame.Rotation.x;
+            RotY = frame.Rotation.y;
+            RotZ = frame.Rotation.z;
+            RotW = frame.Rotation.w;
+            VelX = frame.Velocity.x;
+            VelY = frame.Velocity.y;
+            VelZ = frame.Velocity.z;
+            InputX = frame.Input.x;
+            InputY = frame.Input.y;
+            AnimState = frame.AnimationState;
+            CustomFloats = frame.CustomFloats;
+            CustomInts = frame.CustomInts;
+            CustomBools = frame.CustomBools;
+        }
+
+        public GhostFrame ToFrame()
+        {
+            return new GhostFrame
+            {
+                Timestamp = Timestamp,
+                Position = new Vector3(PosX, PosY, PosZ),
+                Rotation = new Quaternion(RotX, RotY, RotZ, RotW),
+                Velocity = new Vector3(VelX, VelY, VelZ),
+                Input = new Vector2(InputX, InputY),
+                AnimationState = AnimState,
+                CustomFloats = CustomFloats ?? new float[8],
+                CustomInts = CustomInts ?? new int[4],
+                CustomBools = CustomBools ?? new bool[8]
+            };
+        }
+    }
+
+    #endregion
+}

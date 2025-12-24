@@ -1,0 +1,1165 @@
+// ============================================================================
+// Deskillz SDK - Behavior Tree System
+// Hierarchical AI decision-making framework
+// ============================================================================
+
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace Deskillz.SDK.NPC
+{
+    /// <summary>
+    /// Result of a behavior tree node execution
+    /// </summary>
+    public enum NodeStatus
+    {
+        Success,    // Node completed successfully
+        Failure,    // Node failed
+        Running,    // Node still executing
+        Invalid     // Node in invalid state
+    }
+
+    /// <summary>
+    /// Blackboard - Shared data storage for behavior tree
+    /// </summary>
+    public class Blackboard
+    {
+        private readonly Dictionary<string, object> _data = new Dictionary<string, object>();
+        private readonly Dictionary<string, float> _timestamps = new Dictionary<string, float>();
+
+        public event Action<string, object> OnValueChanged;
+
+        /// <summary>
+        /// Set a value
+        /// </summary>
+        public void Set<T>(string key, T value)
+        {
+            _data[key] = value;
+            _timestamps[key] = Time.time;
+            OnValueChanged?.Invoke(key, value);
+        }
+
+        /// <summary>
+        /// Get a value
+        /// </summary>
+        public T Get<T>(string key, T defaultValue = default)
+        {
+            if (_data.TryGetValue(key, out object value) && value is T typedValue)
+                return typedValue;
+            return defaultValue;
+        }
+
+        /// <summary>
+        /// Check if key exists
+        /// </summary>
+        public bool Has(string key)
+        {
+            return _data.ContainsKey(key);
+        }
+
+        /// <summary>
+        /// Remove a value
+        /// </summary>
+        public bool Remove(string key)
+        {
+            _timestamps.Remove(key);
+            return _data.Remove(key);
+        }
+
+        /// <summary>
+        /// Clear all data
+        /// </summary>
+        public void Clear()
+        {
+            _data.Clear();
+            _timestamps.Clear();
+        }
+
+        /// <summary>
+        /// Get time since value was set
+        /// </summary>
+        public float GetAge(string key)
+        {
+            if (_timestamps.TryGetValue(key, out float timestamp))
+                return Time.time - timestamp;
+            return float.MaxValue;
+        }
+
+        /// <summary>
+        /// Check if value is stale (older than maxAge)
+        /// </summary>
+        public bool IsStale(string key, float maxAge)
+        {
+            return GetAge(key) > maxAge;
+        }
+
+        /// <summary>
+        /// Get all keys
+        /// </summary>
+        public IEnumerable<string> GetKeys()
+        {
+            return _data.Keys;
+        }
+
+        /// <summary>
+        /// Clone the blackboard
+        /// </summary>
+        public Blackboard Clone()
+        {
+            var clone = new Blackboard();
+            foreach (var kvp in _data)
+                clone._data[kvp.Key] = kvp.Value;
+            foreach (var kvp in _timestamps)
+                clone._timestamps[kvp.Key] = kvp.Value;
+            return clone;
+        }
+    }
+
+    /// <summary>
+    /// Base class for all behavior tree nodes
+    /// </summary>
+    public abstract class BTNode
+    {
+        public string Name { get; set; }
+        public BTNode Parent { get; set; }
+        public Blackboard Blackboard { get; set; }
+        public NPCController Controller { get; set; }
+
+        protected NodeStatus _status = NodeStatus.Invalid;
+        public NodeStatus Status => _status;
+
+        public bool IsRunning => _status == NodeStatus.Running;
+        public bool HasSucceeded => _status == NodeStatus.Success;
+        public bool HasFailed => _status == NodeStatus.Failure;
+
+        // Debug info
+        public int ExecutionCount { get; private set; }
+        public int SuccessCount { get; private set; }
+        public int FailureCount { get; private set; }
+        public float LastExecutionTime { get; private set; }
+
+        protected BTNode(string name = null)
+        {
+            Name = name ?? GetType().Name;
+        }
+
+        /// <summary>
+        /// Initialize the node
+        /// </summary>
+        public virtual void Initialize(Blackboard blackboard, NPCController controller)
+        {
+            Blackboard = blackboard;
+            Controller = controller;
+        }
+
+        /// <summary>
+        /// Called when node starts executing
+        /// </summary>
+        protected virtual void OnEnter() { }
+
+        /// <summary>
+        /// Called each tick while running
+        /// </summary>
+        protected abstract NodeStatus OnUpdate();
+
+        /// <summary>
+        /// Called when node stops executing
+        /// </summary>
+        protected virtual void OnExit(NodeStatus status) { }
+
+        /// <summary>
+        /// Execute the node
+        /// </summary>
+        public NodeStatus Tick()
+        {
+            if (_status != NodeStatus.Running)
+            {
+                OnEnter();
+            }
+
+            _status = OnUpdate();
+            ExecutionCount++;
+            LastExecutionTime = Time.time;
+
+            if (_status != NodeStatus.Running)
+            {
+                if (_status == NodeStatus.Success)
+                    SuccessCount++;
+                else if (_status == NodeStatus.Failure)
+                    FailureCount++;
+
+                OnExit(_status);
+            }
+
+            return _status;
+        }
+
+        /// <summary>
+        /// Reset the node
+        /// </summary>
+        public virtual void Reset()
+        {
+            _status = NodeStatus.Invalid;
+        }
+
+        /// <summary>
+        /// Abort the node
+        /// </summary>
+        public virtual void Abort()
+        {
+            if (_status == NodeStatus.Running)
+            {
+                OnExit(NodeStatus.Failure);
+                _status = NodeStatus.Failure;
+            }
+        }
+
+        /// <summary>
+        /// Get debug string
+        /// </summary>
+        public virtual string GetDebugString()
+        {
+            return $"{Name}: {_status}";
+        }
+    }
+
+    #region Composite Nodes
+
+    /// <summary>
+    /// Base class for nodes with children
+    /// </summary>
+    public abstract class CompositeNode : BTNode
+    {
+        protected List<BTNode> _children = new List<BTNode>();
+        protected int _currentChild;
+
+        public IReadOnlyList<BTNode> Children => _children;
+
+        protected CompositeNode(string name = null) : base(name) { }
+
+        public void AddChild(BTNode child)
+        {
+            child.Parent = this;
+            _children.Add(child);
+        }
+
+        public void AddChildren(params BTNode[] children)
+        {
+            foreach (var child in children)
+                AddChild(child);
+        }
+
+        public override void Initialize(Blackboard blackboard, NPCController controller)
+        {
+            base.Initialize(blackboard, controller);
+            foreach (var child in _children)
+                child.Initialize(blackboard, controller);
+        }
+
+        protected override void OnEnter()
+        {
+            _currentChild = 0;
+        }
+
+        public override void Reset()
+        {
+            base.Reset();
+            _currentChild = 0;
+            foreach (var child in _children)
+                child.Reset();
+        }
+
+        public override void Abort()
+        {
+            foreach (var child in _children)
+                child.Abort();
+            base.Abort();
+        }
+    }
+
+    /// <summary>
+    /// Selector (OR) - Returns success if any child succeeds
+    /// </summary>
+    public class Selector : CompositeNode
+    {
+        public Selector(string name = "Selector") : base(name) { }
+
+        protected override NodeStatus OnUpdate()
+        {
+            while (_currentChild < _children.Count)
+            {
+                var status = _children[_currentChild].Tick();
+
+                if (status == NodeStatus.Success)
+                    return NodeStatus.Success;
+
+                if (status == NodeStatus.Running)
+                    return NodeStatus.Running;
+
+                _currentChild++;
+            }
+
+            return NodeStatus.Failure;
+        }
+    }
+
+    /// <summary>
+    /// Random Selector - Tries children in random order
+    /// </summary>
+    public class RandomSelector : CompositeNode
+    {
+        private List<int> _shuffledIndices;
+        private System.Random _random;
+
+        public RandomSelector(string name = "RandomSelector", int seed = -1) : base(name)
+        {
+            _random = seed >= 0 ? new System.Random(seed) : new System.Random();
+        }
+
+        protected override void OnEnter()
+        {
+            base.OnEnter();
+            ShuffleIndices();
+        }
+
+        private void ShuffleIndices()
+        {
+            _shuffledIndices = new List<int>();
+            for (int i = 0; i < _children.Count; i++)
+                _shuffledIndices.Add(i);
+
+            // Fisher-Yates shuffle
+            for (int i = _shuffledIndices.Count - 1; i > 0; i--)
+            {
+                int j = _random.Next(i + 1);
+                int temp = _shuffledIndices[i];
+                _shuffledIndices[i] = _shuffledIndices[j];
+                _shuffledIndices[j] = temp;
+            }
+        }
+
+        protected override NodeStatus OnUpdate()
+        {
+            while (_currentChild < _shuffledIndices.Count)
+            {
+                var status = _children[_shuffledIndices[_currentChild]].Tick();
+
+                if (status == NodeStatus.Success)
+                    return NodeStatus.Success;
+
+                if (status == NodeStatus.Running)
+                    return NodeStatus.Running;
+
+                _currentChild++;
+            }
+
+            return NodeStatus.Failure;
+        }
+    }
+
+    /// <summary>
+    /// Sequence (AND) - Returns success only if all children succeed
+    /// </summary>
+    public class Sequence : CompositeNode
+    {
+        public Sequence(string name = "Sequence") : base(name) { }
+
+        protected override NodeStatus OnUpdate()
+        {
+            while (_currentChild < _children.Count)
+            {
+                var status = _children[_currentChild].Tick();
+
+                if (status == NodeStatus.Failure)
+                    return NodeStatus.Failure;
+
+                if (status == NodeStatus.Running)
+                    return NodeStatus.Running;
+
+                _currentChild++;
+            }
+
+            return NodeStatus.Success;
+        }
+    }
+
+    /// <summary>
+    /// Parallel - Runs all children simultaneously
+    /// </summary>
+    public class Parallel : CompositeNode
+    {
+        public enum Policy
+        {
+            RequireAll,     // Success when all succeed, fail when any fails
+            RequireOne,     // Success when any succeeds, fail when all fail
+            RequirePercent  // Success when percentage succeeds
+        }
+
+        private Policy _successPolicy;
+        private Policy _failurePolicy;
+        private float _requiredPercent;
+
+        public Parallel(string name = "Parallel", 
+                       Policy successPolicy = Policy.RequireAll, 
+                       Policy failurePolicy = Policy.RequireOne,
+                       float requiredPercent = 0.5f) : base(name)
+        {
+            _successPolicy = successPolicy;
+            _failurePolicy = failurePolicy;
+            _requiredPercent = requiredPercent;
+        }
+
+        protected override NodeStatus OnUpdate()
+        {
+            int successCount = 0;
+            int failureCount = 0;
+            int runningCount = 0;
+
+            foreach (var child in _children)
+            {
+                var status = child.Tick();
+
+                switch (status)
+                {
+                    case NodeStatus.Success:
+                        successCount++;
+                        break;
+                    case NodeStatus.Failure:
+                        failureCount++;
+                        break;
+                    case NodeStatus.Running:
+                        runningCount++;
+                        break;
+                }
+            }
+
+            // Check failure condition
+            switch (_failurePolicy)
+            {
+                case Policy.RequireAll:
+                    if (failureCount == _children.Count)
+                        return NodeStatus.Failure;
+                    break;
+                case Policy.RequireOne:
+                    if (failureCount > 0)
+                        return NodeStatus.Failure;
+                    break;
+                case Policy.RequirePercent:
+                    if ((float)failureCount / _children.Count >= _requiredPercent)
+                        return NodeStatus.Failure;
+                    break;
+            }
+
+            // Check success condition
+            switch (_successPolicy)
+            {
+                case Policy.RequireAll:
+                    if (successCount == _children.Count)
+                        return NodeStatus.Success;
+                    break;
+                case Policy.RequireOne:
+                    if (successCount > 0)
+                        return NodeStatus.Success;
+                    break;
+                case Policy.RequirePercent:
+                    if ((float)successCount / _children.Count >= _requiredPercent)
+                        return NodeStatus.Success;
+                    break;
+            }
+
+            return runningCount > 0 ? NodeStatus.Running : NodeStatus.Failure;
+        }
+    }
+
+    #endregion
+
+    #region Decorator Nodes
+
+    /// <summary>
+    /// Base class for nodes that modify a single child
+    /// </summary>
+    public abstract class DecoratorNode : BTNode
+    {
+        protected BTNode _child;
+
+        public BTNode Child => _child;
+
+        protected DecoratorNode(BTNode child, string name = null) : base(name)
+        {
+            _child = child;
+            if (_child != null)
+                _child.Parent = this;
+        }
+
+        public override void Initialize(Blackboard blackboard, NPCController controller)
+        {
+            base.Initialize(blackboard, controller);
+            _child?.Initialize(blackboard, controller);
+        }
+
+        public override void Reset()
+        {
+            base.Reset();
+            _child?.Reset();
+        }
+
+        public override void Abort()
+        {
+            _child?.Abort();
+            base.Abort();
+        }
+    }
+
+    /// <summary>
+    /// Inverter - Inverts child result
+    /// </summary>
+    public class Inverter : DecoratorNode
+    {
+        public Inverter(BTNode child) : base(child, "Inverter") { }
+
+        protected override NodeStatus OnUpdate()
+        {
+            var status = _child.Tick();
+
+            switch (status)
+            {
+                case NodeStatus.Success:
+                    return NodeStatus.Failure;
+                case NodeStatus.Failure:
+                    return NodeStatus.Success;
+                default:
+                    return status;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Succeeder - Always returns success
+    /// </summary>
+    public class Succeeder : DecoratorNode
+    {
+        public Succeeder(BTNode child) : base(child, "Succeeder") { }
+
+        protected override NodeStatus OnUpdate()
+        {
+            _child.Tick();
+            return NodeStatus.Success;
+        }
+    }
+
+    /// <summary>
+    /// Failer - Always returns failure
+    /// </summary>
+    public class Failer : DecoratorNode
+    {
+        public Failer(BTNode child) : base(child, "Failer") { }
+
+        protected override NodeStatus OnUpdate()
+        {
+            _child.Tick();
+            return NodeStatus.Failure;
+        }
+    }
+
+    /// <summary>
+    /// Repeater - Repeats child N times or forever
+    /// </summary>
+    public class Repeater : DecoratorNode
+    {
+        private int _repeatCount;
+        private int _currentCount;
+        private bool _repeatForever;
+        private bool _endOnFailure;
+
+        public Repeater(BTNode child, int repeatCount = -1, bool endOnFailure = false) 
+            : base(child, "Repeater")
+        {
+            _repeatCount = repeatCount;
+            _repeatForever = repeatCount < 0;
+            _endOnFailure = endOnFailure;
+        }
+
+        protected override void OnEnter()
+        {
+            _currentCount = 0;
+        }
+
+        protected override NodeStatus OnUpdate()
+        {
+            var status = _child.Tick();
+
+            if (status == NodeStatus.Running)
+                return NodeStatus.Running;
+
+            if (status == NodeStatus.Failure && _endOnFailure)
+                return NodeStatus.Failure;
+
+            _currentCount++;
+            _child.Reset();
+
+            if (!_repeatForever && _currentCount >= _repeatCount)
+                return NodeStatus.Success;
+
+            return NodeStatus.Running;
+        }
+    }
+
+    /// <summary>
+    /// RepeatUntilFail - Repeats until child fails
+    /// </summary>
+    public class RepeatUntilFail : DecoratorNode
+    {
+        public RepeatUntilFail(BTNode child) : base(child, "RepeatUntilFail") { }
+
+        protected override NodeStatus OnUpdate()
+        {
+            var status = _child.Tick();
+
+            if (status == NodeStatus.Failure)
+                return NodeStatus.Success;
+
+            if (status == NodeStatus.Success)
+                _child.Reset();
+
+            return NodeStatus.Running;
+        }
+    }
+
+    /// <summary>
+    /// TimeLimit - Fails if child runs too long
+    /// </summary>
+    public class TimeLimit : DecoratorNode
+    {
+        private float _timeLimit;
+        private float _startTime;
+
+        public TimeLimit(BTNode child, float timeLimit) : base(child, "TimeLimit")
+        {
+            _timeLimit = timeLimit;
+        }
+
+        protected override void OnEnter()
+        {
+            _startTime = Time.time;
+        }
+
+        protected override NodeStatus OnUpdate()
+        {
+            if (Time.time - _startTime > _timeLimit)
+            {
+                _child.Abort();
+                return NodeStatus.Failure;
+            }
+
+            return _child.Tick();
+        }
+    }
+
+    /// <summary>
+    /// Cooldown - Prevents child from running too frequently
+    /// </summary>
+    public class Cooldown : DecoratorNode
+    {
+        private float _cooldownTime;
+        private float _lastRunTime;
+
+        public Cooldown(BTNode child, float cooldownTime) : base(child, "Cooldown")
+        {
+            _cooldownTime = cooldownTime;
+            _lastRunTime = float.MinValue;
+        }
+
+        protected override NodeStatus OnUpdate()
+        {
+            if (Time.time - _lastRunTime < _cooldownTime)
+                return NodeStatus.Failure;
+
+            var status = _child.Tick();
+
+            if (status != NodeStatus.Running)
+                _lastRunTime = Time.time;
+
+            return status;
+        }
+    }
+
+    /// <summary>
+    /// Condition Decorator - Only runs child if condition is true
+    /// </summary>
+    public class ConditionalDecorator : DecoratorNode
+    {
+        private Func<Blackboard, bool> _condition;
+
+        public ConditionalDecorator(BTNode child, Func<Blackboard, bool> condition) 
+            : base(child, "Conditional")
+        {
+            _condition = condition;
+        }
+
+        protected override NodeStatus OnUpdate()
+        {
+            if (_condition == null || !_condition(Blackboard))
+                return NodeStatus.Failure;
+
+            return _child.Tick();
+        }
+    }
+
+    #endregion
+
+    #region Leaf Nodes
+
+    /// <summary>
+    /// Action Node - Executes a custom action
+    /// </summary>
+    public class ActionNode : BTNode
+    {
+        private Func<Blackboard, NPCController, NodeStatus> _action;
+        private Action<Blackboard, NPCController> _onEnterAction;
+        private Action<Blackboard, NPCController, NodeStatus> _onExitAction;
+
+        public ActionNode(string name, Func<Blackboard, NPCController, NodeStatus> action) : base(name)
+        {
+            _action = action;
+        }
+
+        public ActionNode WithOnEnter(Action<Blackboard, NPCController> onEnter)
+        {
+            _onEnterAction = onEnter;
+            return this;
+        }
+
+        public ActionNode WithOnExit(Action<Blackboard, NPCController, NodeStatus> onExit)
+        {
+            _onExitAction = onExit;
+            return this;
+        }
+
+        protected override void OnEnter()
+        {
+            _onEnterAction?.Invoke(Blackboard, Controller);
+        }
+
+        protected override NodeStatus OnUpdate()
+        {
+            return _action?.Invoke(Blackboard, Controller) ?? NodeStatus.Failure;
+        }
+
+        protected override void OnExit(NodeStatus status)
+        {
+            _onExitAction?.Invoke(Blackboard, Controller, status);
+        }
+    }
+
+    /// <summary>
+    /// Condition Node - Checks a condition
+    /// </summary>
+    public class ConditionNode : BTNode
+    {
+        private Func<Blackboard, NPCController, bool> _condition;
+
+        public ConditionNode(string name, Func<Blackboard, NPCController, bool> condition) : base(name)
+        {
+            _condition = condition;
+        }
+
+        protected override NodeStatus OnUpdate()
+        {
+            return _condition?.Invoke(Blackboard, Controller) == true 
+                ? NodeStatus.Success 
+                : NodeStatus.Failure;
+        }
+    }
+
+    /// <summary>
+    /// Wait Node - Waits for specified time
+    /// </summary>
+    public class WaitNode : BTNode
+    {
+        private float _duration;
+        private float _elapsed;
+        private bool _useRandomRange;
+        private float _minDuration;
+        private float _maxDuration;
+
+        public WaitNode(float duration) : base("Wait")
+        {
+            _duration = duration;
+        }
+
+        public WaitNode(float minDuration, float maxDuration) : base("Wait")
+        {
+            _useRandomRange = true;
+            _minDuration = minDuration;
+            _maxDuration = maxDuration;
+        }
+
+        protected override void OnEnter()
+        {
+            _elapsed = 0f;
+            if (_useRandomRange)
+                _duration = UnityEngine.Random.Range(_minDuration, _maxDuration);
+        }
+
+        protected override NodeStatus OnUpdate()
+        {
+            _elapsed += Time.deltaTime;
+            return _elapsed >= _duration ? NodeStatus.Success : NodeStatus.Running;
+        }
+    }
+
+    /// <summary>
+    /// Log Node - Logs a message
+    /// </summary>
+    public class LogNode : BTNode
+    {
+        private string _message;
+        private Func<Blackboard, string> _dynamicMessage;
+
+        public LogNode(string message) : base("Log")
+        {
+            _message = message;
+        }
+
+        public LogNode(Func<Blackboard, string> dynamicMessage) : base("Log")
+        {
+            _dynamicMessage = dynamicMessage;
+        }
+
+        protected override NodeStatus OnUpdate()
+        {
+            string msg = _dynamicMessage != null ? _dynamicMessage(Blackboard) : _message;
+            Debug.Log($"[BT] {msg}");
+            return NodeStatus.Success;
+        }
+    }
+
+    /// <summary>
+    /// Set Blackboard Value Node
+    /// </summary>
+    public class SetValueNode<T> : BTNode
+    {
+        private string _key;
+        private T _value;
+        private Func<Blackboard, T> _dynamicValue;
+
+        public SetValueNode(string key, T value) : base($"Set:{key}")
+        {
+            _key = key;
+            _value = value;
+        }
+
+        public SetValueNode(string key, Func<Blackboard, T> dynamicValue) : base($"Set:{key}")
+        {
+            _key = key;
+            _dynamicValue = dynamicValue;
+        }
+
+        protected override NodeStatus OnUpdate()
+        {
+            T val = _dynamicValue != null ? _dynamicValue(Blackboard) : _value;
+            Blackboard.Set(_key, val);
+            return NodeStatus.Success;
+        }
+    }
+
+    #endregion
+
+    #region Behavior Tree
+
+    /// <summary>
+    /// Main Behavior Tree class
+    /// </summary>
+    public class BehaviorTree : INPCBehavior
+    {
+        private BTNode _root;
+        private Blackboard _blackboard;
+        private NPCController _controller;
+        private bool _isRunning;
+        private float _tickRate;
+        private float _lastTickTime;
+        private NPCInput _currentInput;
+
+        public string BehaviorName { get; private set; }
+        public bool IsComplete { get; private set; }
+        public BTNode Root => _root;
+        public Blackboard Blackboard => _blackboard;
+        public bool IsRunning => _isRunning;
+
+        // Debug
+        public event Action<BTNode> OnNodeExecuted;
+        public bool EnableDebugLogging { get; set; }
+
+        public BehaviorTree(string name, BTNode root, float tickRate = 0.1f)
+        {
+            BehaviorName = name;
+            _root = root;
+            _tickRate = tickRate;
+            _blackboard = new Blackboard();
+            _currentInput = new NPCInput();
+        }
+
+        public void Initialize(NPCController controller)
+        {
+            _controller = controller;
+            _root?.Initialize(_blackboard, controller);
+        }
+
+        public void OnEnter()
+        {
+            _isRunning = true;
+            IsComplete = false;
+            _lastTickTime = Time.time;
+            _root?.Reset();
+
+            if (EnableDebugLogging)
+                Debug.Log($"[BT] Started: {BehaviorName}");
+        }
+
+        public void OnUpdate(float deltaTime)
+        {
+            if (!_isRunning || _root == null)
+                return;
+
+            // Tick at specified rate
+            if (Time.time - _lastTickTime < _tickRate)
+                return;
+
+            _lastTickTime = Time.time;
+
+            var status = _root.Tick();
+            OnNodeExecuted?.Invoke(_root);
+
+            if (status != NodeStatus.Running)
+            {
+                IsComplete = true;
+                _isRunning = false;
+
+                if (EnableDebugLogging)
+                    Debug.Log($"[BT] Completed: {BehaviorName} with {status}");
+            }
+        }
+
+        public void OnExit()
+        {
+            _isRunning = false;
+            _root?.Abort();
+
+            if (EnableDebugLogging)
+                Debug.Log($"[BT] Exited: {BehaviorName}");
+        }
+
+        public NPCInput GetInput()
+        {
+            // Get input from blackboard if set by nodes
+            _currentInput.Movement = _blackboard.Get<Vector2>("input.movement");
+            _currentInput.LookDirection = _blackboard.Get<Vector2>("input.look");
+
+            for (int i = 0; i < 16; i++)
+            {
+                _currentInput.ButtonStates[i] = _blackboard.Get<bool>($"input.button.{i}");
+            }
+
+            return _currentInput;
+        }
+
+        /// <summary>
+        /// Reset the tree
+        /// </summary>
+        public void Reset()
+        {
+            _root?.Reset();
+            IsComplete = false;
+        }
+
+        /// <summary>
+        /// Set a blackboard value
+        /// </summary>
+        public void SetBlackboardValue<T>(string key, T value)
+        {
+            _blackboard.Set(key, value);
+        }
+
+        /// <summary>
+        /// Get a blackboard value
+        /// </summary>
+        public T GetBlackboardValue<T>(string key, T defaultValue = default)
+        {
+            return _blackboard.Get(key, defaultValue);
+        }
+
+        /// <summary>
+        /// Get debug tree structure
+        /// </summary>
+        public string GetDebugTree(int depth = 0)
+        {
+            return GetNodeDebugString(_root, depth);
+        }
+
+        private string GetNodeDebugString(BTNode node, int depth)
+        {
+            if (node == null)
+                return "";
+
+            string indent = new string(' ', depth * 2);
+            string result = $"{indent}{node.GetDebugString()}\n";
+
+            if (node is CompositeNode composite)
+            {
+                foreach (var child in composite.Children)
+                {
+                    result += GetNodeDebugString(child, depth + 1);
+                }
+            }
+            else if (node is DecoratorNode decorator)
+            {
+                result += GetNodeDebugString(decorator.Child, depth + 1);
+            }
+
+            return result;
+        }
+    }
+
+    #endregion
+
+    #region Builder Pattern
+
+    /// <summary>
+    /// Fluent builder for behavior trees
+    /// </summary>
+    public class BehaviorTreeBuilder
+    {
+        private readonly Stack<CompositeNode> _compositeStack = new Stack<CompositeNode>();
+        private BTNode _root;
+        private string _name;
+
+        public BehaviorTreeBuilder(string name)
+        {
+            _name = name;
+        }
+
+        public BehaviorTreeBuilder Selector(string name = "Selector")
+        {
+            var node = new Selector(name);
+            AddNode(node);
+            _compositeStack.Push(node);
+            return this;
+        }
+
+        public BehaviorTreeBuilder RandomSelector(string name = "RandomSelector")
+        {
+            var node = new RandomSelector(name);
+            AddNode(node);
+            _compositeStack.Push(node);
+            return this;
+        }
+
+        public BehaviorTreeBuilder Sequence(string name = "Sequence")
+        {
+            var node = new Sequence(name);
+            AddNode(node);
+            _compositeStack.Push(node);
+            return this;
+        }
+
+        public BehaviorTreeBuilder Parallel(string name = "Parallel",
+            Parallel.Policy successPolicy = NPC.Parallel.Policy.RequireAll,
+            Parallel.Policy failurePolicy = NPC.Parallel.Policy.RequireOne)
+        {
+            var node = new Parallel(name, successPolicy, failurePolicy);
+            AddNode(node);
+            _compositeStack.Push(node);
+            return this;
+        }
+
+        public BehaviorTreeBuilder End()
+        {
+            if (_compositeStack.Count > 0)
+                _compositeStack.Pop();
+            return this;
+        }
+
+        public BehaviorTreeBuilder Action(string name, Func<Blackboard, NPCController, NodeStatus> action)
+        {
+            AddNode(new ActionNode(name, action));
+            return this;
+        }
+
+        public BehaviorTreeBuilder Condition(string name, Func<Blackboard, NPCController, bool> condition)
+        {
+            AddNode(new ConditionNode(name, condition));
+            return this;
+        }
+
+        public BehaviorTreeBuilder Wait(float duration)
+        {
+            AddNode(new WaitNode(duration));
+            return this;
+        }
+
+        public BehaviorTreeBuilder Wait(float min, float max)
+        {
+            AddNode(new WaitNode(min, max));
+            return this;
+        }
+
+        public BehaviorTreeBuilder Log(string message)
+        {
+            AddNode(new LogNode(message));
+            return this;
+        }
+
+        public BehaviorTreeBuilder SetValue<T>(string key, T value)
+        {
+            AddNode(new SetValueNode<T>(key, value));
+            return this;
+        }
+
+        public BehaviorTreeBuilder Invert(BTNode child)
+        {
+            AddNode(new Inverter(child));
+            return this;
+        }
+
+        public BehaviorTreeBuilder Repeat(BTNode child, int count = -1)
+        {
+            AddNode(new Repeater(child, count));
+            return this;
+        }
+
+        public BehaviorTreeBuilder TimeLimit(BTNode child, float limit)
+        {
+            AddNode(new TimeLimit(child, limit));
+            return this;
+        }
+
+        public BehaviorTreeBuilder Cooldown(BTNode child, float cooldown)
+        {
+            AddNode(new Cooldown(child, cooldown));
+            return this;
+        }
+
+        private void AddNode(BTNode node)
+        {
+            if (_compositeStack.Count > 0)
+            {
+                _compositeStack.Peek().AddChild(node);
+            }
+            else if (_root == null)
+            {
+                _root = node;
+            }
+        }
+
+        public BehaviorTree Build(float tickRate = 0.1f)
+        {
+            if (_root == null)
+                throw new InvalidOperationException("Behavior tree has no root node");
+
+            return new BehaviorTree(_name, _root, tickRate);
+        }
+    }
+
+    #endregion
+}

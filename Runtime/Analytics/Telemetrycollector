@@ -1,0 +1,719 @@
+// ============================================================================
+// Deskillz SDK - Telemetry Collector
+// Performance metrics, FPS, memory, and device telemetry
+// ============================================================================
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Profiling;
+
+namespace Deskillz.SDK.Analytics
+{
+    /// <summary>
+    /// Performance metric types
+    /// </summary>
+    public enum MetricType
+    {
+        FPS,
+        FrameTime,
+        MemoryUsed,
+        MemoryReserved,
+        GCCollections,
+        DrawCalls,
+        Triangles,
+        Vertices,
+        SetPassCalls,
+        NetworkLatency,
+        BatteryLevel,
+        ThermalState,
+        CPUUsage,
+        GPUUsage,
+        Custom
+    }
+
+    /// <summary>
+    /// Single metric sample
+    /// </summary>
+    [Serializable]
+    public class MetricSample
+    {
+        public MetricType Type;
+        public string Name;
+        public float Value;
+        public long Timestamp;
+        public string Context;
+
+        public MetricSample() { }
+
+        public MetricSample(MetricType type, float value, string context = null)
+        {
+            Type = type;
+            Name = type.ToString();
+            Value = value;
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            Context = context;
+        }
+
+        public MetricSample(string name, float value, string context = null)
+        {
+            Type = MetricType.Custom;
+            Name = name;
+            Value = value;
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            Context = context;
+        }
+    }
+
+    /// <summary>
+    /// Aggregated metric statistics
+    /// </summary>
+    [Serializable]
+    public class MetricStats
+    {
+        public string Name;
+        public float Min;
+        public float Max;
+        public float Average;
+        public float Median;
+        public float P95;
+        public float P99;
+        public int SampleCount;
+        public float Duration;
+
+        public static MetricStats Calculate(List<float> values, string name, float duration)
+        {
+            if (values == null || values.Count == 0)
+                return new MetricStats { Name = name };
+
+            values.Sort();
+            int count = values.Count;
+
+            float sum = 0;
+            foreach (var v in values) sum += v;
+
+            return new MetricStats
+            {
+                Name = name,
+                Min = values[0],
+                Max = values[count - 1],
+                Average = sum / count,
+                Median = values[count / 2],
+                P95 = values[Mathf.Min((int)(count * 0.95f), count - 1)],
+                P99 = values[Mathf.Min((int)(count * 0.99f), count - 1)],
+                SampleCount = count,
+                Duration = duration
+            };
+        }
+    }
+
+    /// <summary>
+    /// Telemetry snapshot
+    /// </summary>
+    [Serializable]
+    public class TelemetrySnapshot
+    {
+        public long Timestamp;
+        public float FPS;
+        public float FrameTime;
+        public long MemoryUsed;
+        public long MemoryReserved;
+        public long GCMemory;
+        public int DrawCalls;
+        public int Triangles;
+        public int SetPassCalls;
+        public float BatteryLevel;
+        public string ThermalState;
+        public float NetworkLatency;
+        public Dictionary<string, float> CustomMetrics;
+
+        public TelemetrySnapshot()
+        {
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            CustomMetrics = new Dictionary<string, float>();
+        }
+    }
+
+    /// <summary>
+    /// Telemetry configuration
+    /// </summary>
+    [Serializable]
+    public class TelemetryConfig
+    {
+        [Header("Collection")]
+        public bool Enabled = true;
+        public float SampleInterval = 1f;
+        public int MaxSamplesInMemory = 300;
+
+        [Header("Metrics")]
+        public bool CollectFPS = true;
+        public bool CollectMemory = true;
+        public bool CollectRendering = true;
+        public bool CollectBattery = true;
+        public bool CollectThermal = true;
+        public bool CollectNetwork = true;
+
+        [Header("Thresholds")]
+        public float LowFPSThreshold = 30f;
+        public float HighFrameTimeThreshold = 50f; // ms
+        public long HighMemoryThreshold = 500 * 1024 * 1024; // 500MB
+        public float HighLatencyThreshold = 200f; // ms
+
+        [Header("Reporting")]
+        public float ReportInterval = 60f;
+        public bool ReportOnThresholdExceeded = true;
+        public bool ReportOnSceneChange = true;
+    }
+
+    /// <summary>
+    /// Performance alert
+    /// </summary>
+    [Serializable]
+    public class PerformanceAlert
+    {
+        public string AlertType;
+        public string Message;
+        public float Value;
+        public float Threshold;
+        public long Timestamp;
+        public string Context;
+
+        public PerformanceAlert(string type, string message, float value, float threshold, string context = null)
+        {
+            AlertType = type;
+            Message = message;
+            Value = value;
+            Threshold = threshold;
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            Context = context;
+        }
+    }
+
+    /// <summary>
+    /// Telemetry Collector - Gathers performance metrics
+    /// </summary>
+    public class TelemetryCollector : MonoBehaviour
+    {
+        private static TelemetryCollector _instance;
+        public static TelemetryCollector Instance => _instance;
+
+        [Header("Configuration")]
+        [SerializeField] private TelemetryConfig _config;
+
+        // Sampling
+        private float _sampleTimer;
+        private float _reportTimer;
+        private int _frameCount;
+        private float _frameTimeAccumulator;
+        private float _lastFrameTime;
+
+        // Storage
+        private readonly List<TelemetrySnapshot> _snapshots = new List<TelemetrySnapshot>();
+        private readonly Dictionary<string, List<float>> _metricHistory = new Dictionary<string, List<float>>();
+        private readonly Dictionary<string, float> _customMetrics = new Dictionary<string, float>();
+        private readonly List<PerformanceAlert> _alerts = new List<PerformanceAlert>();
+
+        // Current values
+        private float _currentFPS;
+        private float _currentFrameTime;
+        private long _currentMemoryUsed;
+        private float _currentLatency;
+        private string _currentScene;
+
+        // Network latency tracking
+        private readonly Queue<float> _latencySamples = new Queue<float>();
+        private const int MaxLatencySamples = 10;
+
+        // Events
+        public event Action<TelemetrySnapshot> OnSnapshotTaken;
+        public event Action<MetricStats> OnMetricReport;
+        public event Action<PerformanceAlert> OnPerformanceAlert;
+
+        // Properties
+        public float CurrentFPS => _currentFPS;
+        public float CurrentFrameTime => _currentFrameTime;
+        public long CurrentMemoryUsed => _currentMemoryUsed;
+        public float CurrentLatency => _currentLatency;
+        public TelemetryConfig Config => _config;
+        public IReadOnlyList<TelemetrySnapshot> Snapshots => _snapshots;
+        public IReadOnlyList<PerformanceAlert> Alerts => _alerts;
+
+        #region Unity Lifecycle
+
+        private void Awake()
+        {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            if (_config == null)
+                _config = new TelemetryConfig();
+
+            _currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+        }
+
+        private void Start()
+        {
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
+        }
+
+        private void Update()
+        {
+            if (!_config.Enabled)
+                return;
+
+            // Track frame time
+            float deltaTime = Time.unscaledDeltaTime;
+            _frameCount++;
+            _frameTimeAccumulator += deltaTime;
+            _lastFrameTime = deltaTime * 1000f; // Convert to ms
+
+            // Sample at interval
+            _sampleTimer += deltaTime;
+            if (_sampleTimer >= _config.SampleInterval)
+            {
+                TakeSample();
+                _sampleTimer = 0f;
+            }
+
+            // Report at interval
+            _reportTimer += deltaTime;
+            if (_reportTimer >= _config.ReportInterval)
+            {
+                GenerateReport();
+                _reportTimer = 0f;
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (_instance == this)
+            {
+                UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneLoaded;
+                _instance = null;
+            }
+        }
+
+        private void OnSceneLoaded(UnityEngine.SceneManagement.Scene scene, 
+                                   UnityEngine.SceneManagement.LoadSceneMode mode)
+        {
+            string oldScene = _currentScene;
+            _currentScene = scene.name;
+
+            if (_config.ReportOnSceneChange)
+            {
+                GenerateReport();
+
+                // Track scene change
+                AnalyticsManager.Instance?.Track("scene_change", EventCategory.Performance, 
+                    new Dictionary<string, object>
+                    {
+                        ["from_scene"] = oldScene,
+                        ["to_scene"] = _currentScene
+                    });
+            }
+        }
+
+        #endregion
+
+        #region Sampling
+
+        private void TakeSample()
+        {
+            var snapshot = new TelemetrySnapshot();
+
+            // FPS
+            if (_config.CollectFPS && _frameCount > 0)
+            {
+                _currentFPS = _frameCount / _frameTimeAccumulator;
+                _currentFrameTime = (_frameTimeAccumulator / _frameCount) * 1000f;
+
+                snapshot.FPS = _currentFPS;
+                snapshot.FrameTime = _currentFrameTime;
+
+                RecordMetric(MetricType.FPS, _currentFPS);
+                RecordMetric(MetricType.FrameTime, _currentFrameTime);
+
+                // Check thresholds
+                if (_currentFPS < _config.LowFPSThreshold)
+                {
+                    RaiseAlert("LowFPS", $"FPS dropped to {_currentFPS:F1}", 
+                              _currentFPS, _config.LowFPSThreshold);
+                }
+
+                if (_currentFrameTime > _config.HighFrameTimeThreshold)
+                {
+                    RaiseAlert("HighFrameTime", $"Frame time {_currentFrameTime:F1}ms", 
+                              _currentFrameTime, _config.HighFrameTimeThreshold);
+                }
+
+                _frameCount = 0;
+                _frameTimeAccumulator = 0;
+            }
+
+            // Memory
+            if (_config.CollectMemory)
+            {
+                _currentMemoryUsed = Profiler.GetTotalAllocatedMemoryLong();
+                long memoryReserved = Profiler.GetTotalReservedMemoryLong();
+                long gcMemory = GC.GetTotalMemory(false);
+
+                snapshot.MemoryUsed = _currentMemoryUsed;
+                snapshot.MemoryReserved = memoryReserved;
+                snapshot.GCMemory = gcMemory;
+
+                RecordMetric(MetricType.MemoryUsed, _currentMemoryUsed / (1024f * 1024f));
+                RecordMetric(MetricType.MemoryReserved, memoryReserved / (1024f * 1024f));
+
+                if (_currentMemoryUsed > _config.HighMemoryThreshold)
+                {
+                    RaiseAlert("HighMemory", $"Memory usage {_currentMemoryUsed / (1024 * 1024)}MB", 
+                              _currentMemoryUsed, _config.HighMemoryThreshold);
+                }
+            }
+
+            // Rendering (Editor only has full stats)
+            if (_config.CollectRendering)
+            {
+#if UNITY_EDITOR
+                snapshot.DrawCalls = UnityEditor.UnityStats.drawCalls;
+                snapshot.Triangles = UnityEditor.UnityStats.triangles;
+                snapshot.SetPassCalls = UnityEditor.UnityStats.setPassCalls;
+
+                RecordMetric(MetricType.DrawCalls, snapshot.DrawCalls);
+                RecordMetric(MetricType.Triangles, snapshot.Triangles);
+#endif
+            }
+
+            // Battery
+            if (_config.CollectBattery)
+            {
+                snapshot.BatteryLevel = SystemInfo.batteryLevel;
+                
+                if (snapshot.BatteryLevel >= 0)
+                    RecordMetric(MetricType.BatteryLevel, snapshot.BatteryLevel * 100f);
+            }
+
+            // Thermal (iOS specific, simulated for others)
+            if (_config.CollectThermal)
+            {
+#if UNITY_IOS
+                snapshot.ThermalState = UnityEngine.iOS.Device.lowPowerModeEnabled ? "throttled" : "normal";
+#else
+                snapshot.ThermalState = "unknown";
+#endif
+            }
+
+            // Network latency
+            if (_config.CollectNetwork)
+            {
+                snapshot.NetworkLatency = _currentLatency;
+                
+                if (_currentLatency > 0)
+                {
+                    RecordMetric(MetricType.NetworkLatency, _currentLatency);
+
+                    if (_currentLatency > _config.HighLatencyThreshold)
+                    {
+                        RaiseAlert("HighLatency", $"Network latency {_currentLatency:F0}ms", 
+                                  _currentLatency, _config.HighLatencyThreshold);
+                    }
+                }
+            }
+
+            // Custom metrics
+            foreach (var kvp in _customMetrics)
+            {
+                snapshot.CustomMetrics[kvp.Key] = kvp.Value;
+            }
+
+            // Store snapshot
+            _snapshots.Add(snapshot);
+            while (_snapshots.Count > _config.MaxSamplesInMemory)
+                _snapshots.RemoveAt(0);
+
+            OnSnapshotTaken?.Invoke(snapshot);
+        }
+
+        private void RecordMetric(MetricType type, float value)
+        {
+            RecordMetric(type.ToString(), value);
+        }
+
+        private void RecordMetric(string name, float value)
+        {
+            if (!_metricHistory.TryGetValue(name, out var history))
+            {
+                history = new List<float>();
+                _metricHistory[name] = history;
+            }
+
+            history.Add(value);
+
+            // Trim old values
+            while (history.Count > _config.MaxSamplesInMemory)
+                history.RemoveAt(0);
+        }
+
+        #endregion
+
+        #region Custom Metrics
+
+        /// <summary>
+        /// Record a custom metric value
+        /// </summary>
+        public void RecordCustomMetric(string name, float value)
+        {
+            _customMetrics[name] = value;
+            RecordMetric(name, value);
+        }
+
+        /// <summary>
+        /// Increment a custom counter
+        /// </summary>
+        public void IncrementCounter(string name, float amount = 1f)
+        {
+            if (_customMetrics.TryGetValue(name, out float current))
+                _customMetrics[name] = current + amount;
+            else
+                _customMetrics[name] = amount;
+        }
+
+        /// <summary>
+        /// Start timing an operation
+        /// </summary>
+        public TimingHandle StartTiming(string name)
+        {
+            return new TimingHandle(name, this);
+        }
+
+        /// <summary>
+        /// Record operation duration
+        /// </summary>
+        public void RecordTiming(string name, float milliseconds)
+        {
+            RecordMetric($"timing_{name}", milliseconds);
+
+            // Also send as event
+            AnalyticsManager.Instance?.Track("timing", EventCategory.Performance, 
+                new Dictionary<string, object>
+                {
+                    ["operation"] = name,
+                    ["duration_ms"] = milliseconds
+                });
+        }
+
+        /// <summary>
+        /// Update network latency
+        /// </summary>
+        public void UpdateLatency(float latencyMs)
+        {
+            _latencySamples.Enqueue(latencyMs);
+            while (_latencySamples.Count > MaxLatencySamples)
+                _latencySamples.Dequeue();
+
+            // Calculate average
+            float sum = 0;
+            foreach (var sample in _latencySamples)
+                sum += sample;
+
+            _currentLatency = sum / _latencySamples.Count;
+        }
+
+        #endregion
+
+        #region Reporting
+
+        private void GenerateReport()
+        {
+            float duration = _config.ReportInterval;
+
+            foreach (var kvp in _metricHistory)
+            {
+                if (kvp.Value.Count == 0)
+                    continue;
+
+                var stats = MetricStats.Calculate(kvp.Value, kvp.Key, duration);
+                OnMetricReport?.Invoke(stats);
+
+                // Send to analytics
+                AnalyticsManager.Instance?.Track("metric_report", EventCategory.Performance, 
+                    new Dictionary<string, object>
+                    {
+                        ["metric_name"] = stats.Name,
+                        ["min"] = stats.Min,
+                        ["max"] = stats.Max,
+                        ["avg"] = stats.Average,
+                        ["p95"] = stats.P95,
+                        ["samples"] = stats.SampleCount,
+                        ["scene"] = _currentScene
+                    });
+
+                // Clear history for next period
+                kvp.Value.Clear();
+            }
+
+            // Clear alerts for next period
+            _alerts.Clear();
+        }
+
+        /// <summary>
+        /// Get current telemetry snapshot
+        /// </summary>
+        public TelemetrySnapshot GetCurrentSnapshot()
+        {
+            return _snapshots.Count > 0 ? _snapshots[_snapshots.Count - 1] : null;
+        }
+
+        /// <summary>
+        /// Get metric statistics
+        /// </summary>
+        public MetricStats GetMetricStats(string name)
+        {
+            if (_metricHistory.TryGetValue(name, out var history))
+            {
+                return MetricStats.Calculate(history, name, _reportTimer);
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Get metric statistics by type
+        /// </summary>
+        public MetricStats GetMetricStats(MetricType type)
+        {
+            return GetMetricStats(type.ToString());
+        }
+
+        #endregion
+
+        #region Alerts
+
+        private void RaiseAlert(string type, string message, float value, float threshold)
+        {
+            // Prevent duplicate alerts in short time
+            foreach (var existing in _alerts)
+            {
+                if (existing.AlertType == type)
+                    return;
+            }
+
+            var alert = new PerformanceAlert(type, message, value, threshold, _currentScene);
+            _alerts.Add(alert);
+
+            OnPerformanceAlert?.Invoke(alert);
+
+            if (_config.ReportOnThresholdExceeded)
+            {
+                AnalyticsManager.Instance?.Track("performance_alert", EventCategory.Performance, 
+                    new Dictionary<string, object>
+                    {
+                        ["alert_type"] = type,
+                        ["value"] = value,
+                        ["threshold"] = threshold,
+                        ["scene"] = _currentScene
+                    }, EventPriority.High);
+            }
+        }
+
+        #endregion
+
+        #region Device Info
+
+        /// <summary>
+        /// Get comprehensive device info
+        /// </summary>
+        public DeviceInfo GetDeviceInfo()
+        {
+            return new DeviceInfo
+            {
+                DeviceModel = SystemInfo.deviceModel,
+                DeviceName = SystemInfo.deviceName,
+                DeviceType = SystemInfo.deviceType.ToString(),
+                OperatingSystem = SystemInfo.operatingSystem,
+                ProcessorType = SystemInfo.processorType,
+                ProcessorCount = SystemInfo.processorCount,
+                ProcessorFrequency = SystemInfo.processorFrequency,
+                SystemMemoryMB = SystemInfo.systemMemorySize,
+                GraphicsDeviceName = SystemInfo.graphicsDeviceName,
+                GraphicsDeviceVendor = SystemInfo.graphicsDeviceVendor,
+                GraphicsMemoryMB = SystemInfo.graphicsMemorySize,
+                GraphicsShaderLevel = SystemInfo.graphicsShaderLevel,
+                MaxTextureSize = SystemInfo.maxTextureSize,
+                SupportsInstancing = SystemInfo.supportsInstancing,
+                SupportsComputeShaders = SystemInfo.supportsComputeShaders,
+                ScreenWidth = Screen.width,
+                ScreenHeight = Screen.height,
+                ScreenDPI = Screen.dpi,
+                ScreenRefreshRate = Screen.currentResolution.refreshRateRatio.value,
+                BatteryLevel = SystemInfo.batteryLevel,
+                BatteryStatus = SystemInfo.batteryStatus.ToString()
+            };
+        }
+
+        #endregion
+    }
+
+    /// <summary>
+    /// Device information
+    /// </summary>
+    [Serializable]
+    public class DeviceInfo
+    {
+        public string DeviceModel;
+        public string DeviceName;
+        public string DeviceType;
+        public string OperatingSystem;
+        public string ProcessorType;
+        public int ProcessorCount;
+        public int ProcessorFrequency;
+        public int SystemMemoryMB;
+        public string GraphicsDeviceName;
+        public string GraphicsDeviceVendor;
+        public int GraphicsMemoryMB;
+        public int GraphicsShaderLevel;
+        public int MaxTextureSize;
+        public bool SupportsInstancing;
+        public bool SupportsComputeShaders;
+        public int ScreenWidth;
+        public int ScreenHeight;
+        public float ScreenDPI;
+        public double ScreenRefreshRate;
+        public float BatteryLevel;
+        public string BatteryStatus;
+    }
+
+    /// <summary>
+    /// Timing handle for measuring operation duration
+    /// </summary>
+    public class TimingHandle : IDisposable
+    {
+        private readonly string _name;
+        private readonly TelemetryCollector _collector;
+        private readonly float _startTime;
+        private bool _disposed;
+
+        public TimingHandle(string name, TelemetryCollector collector)
+        {
+            _name = name;
+            _collector = collector;
+            _startTime = Time.realtimeSinceStartup;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            float duration = (Time.realtimeSinceStartup - _startTime) * 1000f;
+            _collector?.RecordTiming(_name, duration);
+        }
+    }
+}

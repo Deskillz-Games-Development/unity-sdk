@@ -1,0 +1,53 @@
+{
+    "name": "com.deskillz.sdk",
+    "version": "1.0.0",
+    "displayName": "Deskillz SDK",
+    "description": "Deskillz competitive gaming SDK for Unity. Easily integrate tournaments, real-time multiplayer, and custom stages into your game.",
+    "unity": "2020.3",
+    "unityRelease": "0f1",
+    "documentationUrl": "https://docs.deskillz.games/unity",
+    "changelogUrl": "https://docs.deskillz.games/unity/changelog",
+    "licensesUrl": "https://deskillz.games/licenses",
+    "dependencies": {},
+    "keywords": [
+        "deskillz",
+        "esports",
+        "tournaments",
+        "multiplayer",
+        "competitive",
+        "gaming",
+        "crypto",
+        "web3"
+    ],
+    "author": {
+        "name": "Deskillz",
+        "email": "sdk@deskillz.games",
+        "url": "https://deskillz.games"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/deskillz/unity-sdk.git"
+    },
+    "samples": [
+        {
+            "displayName": "Basic Integration",
+            "description": "Minimal integration example with 2-line score submission",
+            "path": "Samples~/BasicIntegration"
+        },
+        {
+            "displayName": "Async Tournament",
+            "description": "Complete asynchronous tournament game example",
+            "path": "Samples~/AsyncTournament"
+        },
+        {
+            "displayName": "Realtime Multiplayer",
+            "description": "Synchronous real-time multiplayer example",
+            "path": "Samples~/RealtimeMultiplayer"
+        },
+        {
+            "displayName": "Custom Stage",
+            "description": "Custom stage/room system example",
+            "path": "Samples~/CustomStageDemo"
+        }
+    ]
+}

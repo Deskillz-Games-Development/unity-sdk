@@ -1,0 +1,782 @@
+// ============================================================================
+// Deskillz SDK - Practice Bot Manager
+// Manages practice bot spawning and configuration
+// ============================================================================
+
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace Deskillz.SDK.NPC
+{
+    /// <summary>
+    /// Practice mode types
+    /// </summary>
+    public enum PracticeMode
+    {
+        Casual,         // Relaxed practice, no pressure
+        Warmup,         // Pre-tournament warmup
+        Training,       // Skill improvement focused
+        Challenge,      // Test yourself against tough bots
+        Tutorial        // Learning mode with hints
+    }
+
+    /// <summary>
+    /// Bot preset configurations
+    /// </summary>
+    public enum BotPreset
+    {
+        Beginner,       // Very easy, makes lots of mistakes
+        Casual,         // Easy going, occasional mistakes
+        Standard,       // Average skill
+        Skilled,        // Above average
+        Expert,         // Very challenging
+        Champion,       // Near-perfect
+        Adaptive,       // Matches player skill
+        Custom          // User-defined settings
+    }
+
+    /// <summary>
+    /// Practice session configuration
+    /// </summary>
+    [Serializable]
+    public class PracticeSessionConfig
+    {
+        public PracticeMode Mode = PracticeMode.Casual;
+        public BotPreset BotPreset = BotPreset.Standard;
+        public NPCPersonality Personality = NPCPersonality.Balanced;
+        public int BotCount = 1;
+        public float SessionDuration = 300f; // 5 minutes
+        public bool ShowHints = false;
+        public bool TrackStats = true;
+        public bool EnablePause = true;
+        public string GameId = "";
+        public string MapId = "";
+
+        // Custom difficulty (only used with BotPreset.Custom)
+        public float CustomDifficulty = 0.5f;
+        public NPCConfig CustomConfig;
+
+        public static PracticeSessionConfig QuickPlay()
+        {
+            return new PracticeSessionConfig
+            {
+                Mode = PracticeMode.Casual,
+                BotPreset = BotPreset.Standard,
+                SessionDuration = 180f
+            };
+        }
+
+        public static PracticeSessionConfig PreTournamentWarmup()
+        {
+            return new PracticeSessionConfig
+            {
+                Mode = PracticeMode.Warmup,
+                BotPreset = BotPreset.Adaptive,
+                SessionDuration = 120f,
+                TrackStats = true
+            };
+        }
+
+        public static PracticeSessionConfig Tutorial()
+        {
+            return new PracticeSessionConfig
+            {
+                Mode = PracticeMode.Tutorial,
+                BotPreset = BotPreset.Beginner,
+                ShowHints = true,
+                EnablePause = true,
+                SessionDuration = 600f
+            };
+        }
+    }
+
+    /// <summary>
+    /// Practice session statistics
+    /// </summary>
+    [Serializable]
+    public class PracticeStats
+    {
+        public string SessionId;
+        public DateTime StartTime;
+        public float Duration;
+        public int PlayerScore;
+        public int BotScore;
+        public int Wins;
+        public int Losses;
+        public int Rounds;
+        public float AverageReactionTime;
+        public float AccuracyRate;
+        public int HighestCombo;
+        public PracticeMode Mode;
+        public BotPreset BotPreset;
+
+        public bool PlayerWon => PlayerScore > BotScore;
+        public float WinRate => Rounds > 0 ? (float)Wins / Rounds : 0f;
+
+        public PracticeStats()
+        {
+            SessionId = Guid.NewGuid().ToString("N").Substring(0, 8);
+            StartTime = DateTime.UtcNow;
+        }
+    }
+
+    /// <summary>
+    /// Managed practice bot instance
+    /// </summary>
+    public class PracticeBot
+    {
+        public string BotId { get; }
+        public NPCController Controller { get; }
+        public NPCConfig Config { get; }
+        public BotPreset Preset { get; }
+        public bool IsActive { get; private set; }
+
+        public PracticeBot(NPCController controller, NPCConfig config, BotPreset preset)
+        {
+            BotId = $"practice_bot_{Guid.NewGuid():N}".Substring(0, 20);
+            Controller = controller;
+            Config = config;
+            Preset = preset;
+            IsActive = false;
+        }
+
+        public void Activate()
+        {
+            IsActive = true;
+            Controller?.Activate();
+        }
+
+        public void Deactivate()
+        {
+            IsActive = false;
+            Controller?.Deactivate();
+        }
+    }
+
+    /// <summary>
+    /// Event args for practice session events
+    /// </summary>
+    public class PracticeSessionEventArgs : EventArgs
+    {
+        public PracticeSessionConfig Config { get; }
+        public PracticeStats Stats { get; }
+        public List<PracticeBot> Bots { get; }
+
+        public PracticeSessionEventArgs(PracticeSessionConfig config, PracticeStats stats, List<PracticeBot> bots)
+        {
+            Config = config;
+            Stats = stats;
+            Bots = bots;
+        }
+    }
+
+    /// <summary>
+    /// Practice Bot Manager - Handles practice sessions and bot lifecycle
+    /// </summary>
+    public class PracticeBotManager : MonoBehaviour
+    {
+        private static PracticeBotManager _instance;
+        public static PracticeBotManager Instance => _instance;
+
+        [Header("Bot Prefab")]
+        [SerializeField] private GameObject _botPrefab;
+        [SerializeField] private Transform _botSpawnParent;
+
+        [Header("Spawn Settings")]
+        [SerializeField] private Transform[] _spawnPoints;
+        [SerializeField] private float _spawnOffset = 2f;
+
+        [Header("Settings")]
+        [SerializeField] private int _maxBots = 8;
+        [SerializeField] private bool _persistStats = true;
+
+        // Session state
+        private PracticeSessionConfig _currentConfig;
+        private PracticeStats _currentStats;
+        private readonly List<PracticeBot> _activeBots = new List<PracticeBot>();
+        private bool _sessionActive;
+        private float _sessionTimer;
+
+        // History
+        private readonly List<PracticeStats> _sessionHistory = new List<PracticeStats>();
+
+        // Events
+        public event EventHandler<PracticeSessionEventArgs> OnSessionStarted;
+        public event EventHandler<PracticeSessionEventArgs> OnSessionEnded;
+        public event EventHandler<PracticeBot> OnBotSpawned;
+        public event EventHandler<PracticeBot> OnBotDespawned;
+        public event Action<int, int> OnScoreUpdated; // playerScore, botScore
+
+        // Properties
+        public bool IsSessionActive => _sessionActive;
+        public PracticeSessionConfig CurrentConfig => _currentConfig;
+        public PracticeStats CurrentStats => _currentStats;
+        public IReadOnlyList<PracticeBot> ActiveBots => _activeBots;
+        public float SessionTimeRemaining => _sessionActive ? Mathf.Max(0, _currentConfig.SessionDuration - _sessionTimer) : 0;
+        public float SessionProgress => _sessionActive && _currentConfig.SessionDuration > 0 
+            ? _sessionTimer / _currentConfig.SessionDuration 
+            : 0;
+
+        private void Awake()
+        {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            if (_persistStats)
+                LoadStats();
+        }
+
+        private void Update()
+        {
+            if (!_sessionActive)
+                return;
+
+            _sessionTimer += Time.deltaTime;
+            _currentStats.Duration = _sessionTimer;
+
+            // Check session timeout
+            if (_currentConfig.SessionDuration > 0 && _sessionTimer >= _currentConfig.SessionDuration)
+            {
+                EndSession();
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (_instance == this)
+            {
+                EndSession();
+                if (_persistStats)
+                    SaveStats();
+                _instance = null;
+            }
+        }
+
+        #region Session Management
+
+        /// <summary>
+        /// Start a practice session
+        /// </summary>
+        public bool StartSession(PracticeSessionConfig config)
+        {
+            if (_sessionActive)
+            {
+                Debug.LogWarning("[PracticeBot] Session already active");
+                return false;
+            }
+
+            if (config == null)
+                config = PracticeSessionConfig.QuickPlay();
+
+            _currentConfig = config;
+            _currentStats = new PracticeStats
+            {
+                Mode = config.Mode,
+                BotPreset = config.BotPreset
+            };
+            _sessionTimer = 0f;
+            _sessionActive = true;
+
+            // Spawn bots
+            SpawnBots(config);
+
+            OnSessionStarted?.Invoke(this, new PracticeSessionEventArgs(config, _currentStats, _activeBots));
+
+            Debug.Log($"[PracticeBot] Session started: {config.Mode}, {config.BotPreset}, {config.BotCount} bots");
+
+            return true;
+        }
+
+        /// <summary>
+        /// Start quick play session
+        /// </summary>
+        public bool StartQuickPlay(BotPreset preset = BotPreset.Standard)
+        {
+            var config = PracticeSessionConfig.QuickPlay();
+            config.BotPreset = preset;
+            return StartSession(config);
+        }
+
+        /// <summary>
+        /// Start warmup session
+        /// </summary>
+        public bool StartWarmup(float duration = 120f)
+        {
+            var config = PracticeSessionConfig.PreTournamentWarmup();
+            config.SessionDuration = duration;
+            return StartSession(config);
+        }
+
+        /// <summary>
+        /// Start tutorial session
+        /// </summary>
+        public bool StartTutorial()
+        {
+            return StartSession(PracticeSessionConfig.Tutorial());
+        }
+
+        /// <summary>
+        /// End current session
+        /// </summary>
+        public PracticeStats EndSession()
+        {
+            if (!_sessionActive)
+                return null;
+
+            _sessionActive = false;
+
+            // Despawn all bots
+            DespawnAllBots();
+
+            // Save stats
+            if (_currentConfig.TrackStats)
+            {
+                _sessionHistory.Add(_currentStats);
+                if (_persistStats)
+                    SaveStats();
+            }
+
+            OnSessionEnded?.Invoke(this, new PracticeSessionEventArgs(_currentConfig, _currentStats, _activeBots));
+
+            Debug.Log($"[PracticeBot] Session ended: Score {_currentStats.PlayerScore} vs {_currentStats.BotScore}");
+
+            var stats = _currentStats;
+            _currentStats = null;
+            _currentConfig = null;
+
+            return stats;
+        }
+
+        /// <summary>
+        /// Pause session
+        /// </summary>
+        public void PauseSession()
+        {
+            if (_sessionActive && _currentConfig.EnablePause)
+            {
+                foreach (var bot in _activeBots)
+                    bot.Controller?.Pause();
+            }
+        }
+
+        /// <summary>
+        /// Resume session
+        /// </summary>
+        public void ResumeSession()
+        {
+            if (_sessionActive)
+            {
+                foreach (var bot in _activeBots)
+                    bot.Controller?.Resume();
+            }
+        }
+
+        #endregion
+
+        #region Bot Management
+
+        private void SpawnBots(PracticeSessionConfig config)
+        {
+            int count = Mathf.Min(config.BotCount, _maxBots);
+
+            for (int i = 0; i < count; i++)
+            {
+                SpawnBot(config, i);
+            }
+        }
+
+        private PracticeBot SpawnBot(PracticeSessionConfig config, int index)
+        {
+            if (_activeBots.Count >= _maxBots)
+            {
+                Debug.LogWarning("[PracticeBot] Max bots reached");
+                return null;
+            }
+
+            // Get spawn position
+            Vector3 spawnPos = GetSpawnPosition(index);
+
+            // Create bot object
+            GameObject botObj;
+            if (_botPrefab != null)
+            {
+                botObj = Instantiate(_botPrefab, spawnPos, Quaternion.identity, _botSpawnParent);
+            }
+            else
+            {
+                botObj = new GameObject($"PracticeBot_{index}");
+                botObj.transform.position = spawnPos;
+                if (_botSpawnParent != null)
+                    botObj.transform.SetParent(_botSpawnParent);
+            }
+
+            // Get or add NPC controller
+            var controller = botObj.GetComponent<NPCController>();
+            if (controller == null)
+                controller = botObj.AddComponent<NPCController>();
+
+            // Create config
+            var npcConfig = CreateBotConfig(config, index);
+            controller.Initialize(npcConfig);
+
+            // Create practice bot wrapper
+            var bot = new PracticeBot(controller, npcConfig, config.BotPreset);
+            _activeBots.Add(bot);
+            bot.Activate();
+
+            OnBotSpawned?.Invoke(this, bot);
+
+            return bot;
+        }
+
+        private NPCConfig CreateBotConfig(PracticeSessionConfig config, int index)
+        {
+            NPCConfig npcConfig;
+
+            switch (config.BotPreset)
+            {
+                case BotPreset.Beginner:
+                    npcConfig = NPCConfig.FromDifficulty(NPCDifficulty.Tutorial, config.Personality);
+                    break;
+
+                case BotPreset.Casual:
+                    npcConfig = NPCConfig.FromDifficulty(NPCDifficulty.Easy, config.Personality);
+                    break;
+
+                case BotPreset.Standard:
+                    npcConfig = NPCConfig.FromDifficulty(NPCDifficulty.Medium, config.Personality);
+                    break;
+
+                case BotPreset.Skilled:
+                    npcConfig = NPCConfig.FromDifficulty(NPCDifficulty.Hard, config.Personality);
+                    break;
+
+                case BotPreset.Expert:
+                    npcConfig = NPCConfig.FromDifficulty(NPCDifficulty.Expert, config.Personality);
+                    break;
+
+                case BotPreset.Champion:
+                    npcConfig = NPCConfig.FromDifficulty(NPCDifficulty.Master, config.Personality);
+                    break;
+
+                case BotPreset.Adaptive:
+                    // Use adaptive difficulty system if available
+                    if (AdaptiveDifficultySystem.Instance != null)
+                    {
+                        npcConfig = AdaptiveDifficultySystem.Instance.GetCurrentConfig();
+                    }
+                    else
+                    {
+                        npcConfig = NPCConfig.FromDifficulty(NPCDifficulty.Adaptive, config.Personality);
+                    }
+                    break;
+
+                case BotPreset.Custom:
+                    npcConfig = config.CustomConfig ?? CreateConfigFromDifficulty(config.CustomDifficulty);
+                    break;
+
+                default:
+                    npcConfig = NPCConfig.FromDifficulty(NPCDifficulty.Medium, config.Personality);
+                    break;
+            }
+
+            npcConfig.DisplayName = GetBotName(config.BotPreset, index);
+            npcConfig.NPCId = $"practice_{config.BotPreset}_{index}";
+
+            return npcConfig;
+        }
+
+        private NPCConfig CreateConfigFromDifficulty(float difficulty)
+        {
+            if (AdaptiveDifficultySystem.Instance != null)
+            {
+                return AdaptiveDifficultySystem.Instance.CreateConfigFromDifficulty(difficulty);
+            }
+
+            // Fallback manual mapping
+            var config = new NPCConfig
+            {
+                Difficulty = NPCDifficulty.Adaptive,
+                ReactionSpeed = Mathf.Lerp(0.2f, 0.95f, difficulty),
+                Accuracy = Mathf.Lerp(0.3f, 0.95f, difficulty),
+                DecisionQuality = Mathf.Lerp(0.2f, 0.9f, difficulty),
+                Consistency = Mathf.Lerp(0.4f, 0.9f, difficulty),
+                MistakeChance = Mathf.Lerp(0.3f, 0.02f, difficulty)
+            };
+
+            return config;
+        }
+
+        private Vector3 GetSpawnPosition(int index)
+        {
+            if (_spawnPoints != null && index < _spawnPoints.Length && _spawnPoints[index] != null)
+            {
+                return _spawnPoints[index].position;
+            }
+
+            // Default: spawn in circle around center
+            float angle = (360f / Mathf.Max(1, _currentConfig?.BotCount ?? 1)) * index * Mathf.Deg2Rad;
+            return new Vector3(
+                Mathf.Cos(angle) * _spawnOffset,
+                0,
+                Mathf.Sin(angle) * _spawnOffset
+            );
+        }
+
+        private string GetBotName(BotPreset preset, int index)
+        {
+            string[] names = preset switch
+            {
+                BotPreset.Beginner => new[] { "Newbie", "Rookie", "Starter", "Learner" },
+                BotPreset.Casual => new[] { "Buddy", "Friend", "Pal", "Mate" },
+                BotPreset.Standard => new[] { "Alex", "Sam", "Jordan", "Casey" },
+                BotPreset.Skilled => new[] { "Ace", "Pro", "Sharp", "Quick" },
+                BotPreset.Expert => new[] { "Hawk", "Viper", "Storm", "Blaze" },
+                BotPreset.Champion => new[] { "Titan", "Legend", "Phoenix", "Apex" },
+                BotPreset.Adaptive => new[] { "Mirror", "Echo", "Shadow", "Twin" },
+                _ => new[] { "Bot" }
+            };
+
+            return names[index % names.Length];
+        }
+
+        /// <summary>
+        /// Despawn a specific bot
+        /// </summary>
+        public void DespawnBot(PracticeBot bot)
+        {
+            if (bot == null)
+                return;
+
+            bot.Deactivate();
+            _activeBots.Remove(bot);
+
+            if (bot.Controller != null)
+                Destroy(bot.Controller.gameObject);
+
+            OnBotDespawned?.Invoke(this, bot);
+        }
+
+        /// <summary>
+        /// Despawn all bots
+        /// </summary>
+        public void DespawnAllBots()
+        {
+            var botsToRemove = new List<PracticeBot>(_activeBots);
+            foreach (var bot in botsToRemove)
+            {
+                DespawnBot(bot);
+            }
+            _activeBots.Clear();
+        }
+
+        /// <summary>
+        /// Add a bot mid-session
+        /// </summary>
+        public PracticeBot AddBot(BotPreset preset = BotPreset.Standard)
+        {
+            if (!_sessionActive)
+            {
+                Debug.LogWarning("[PracticeBot] Cannot add bot - no active session");
+                return null;
+            }
+
+            var tempConfig = new PracticeSessionConfig
+            {
+                BotPreset = preset,
+                Personality = _currentConfig.Personality
+            };
+
+            return SpawnBot(tempConfig, _activeBots.Count);
+        }
+
+        /// <summary>
+        /// Change difficulty of all active bots
+        /// </summary>
+        public void SetBotDifficulty(BotPreset preset)
+        {
+            foreach (var bot in _activeBots)
+            {
+                if (bot.Controller != null)
+                {
+                    var newConfig = CreateBotConfig(new PracticeSessionConfig { BotPreset = preset }, 0);
+                    bot.Controller.Initialize(newConfig);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Change difficulty using float value
+        /// </summary>
+        public void SetBotDifficulty(float difficulty)
+        {
+            foreach (var bot in _activeBots)
+            {
+                if (bot.Controller != null)
+                {
+                    var config = CreateConfigFromDifficulty(difficulty);
+                    bot.Controller.Initialize(config);
+                }
+            }
+        }
+
+        #endregion
+
+        #region Score Tracking
+
+        /// <summary>
+        /// Update player score
+        /// </summary>
+        public void UpdatePlayerScore(int score)
+        {
+            if (_currentStats != null)
+            {
+                _currentStats.PlayerScore = score;
+                OnScoreUpdated?.Invoke(score, _currentStats.BotScore);
+            }
+        }
+
+        /// <summary>
+        /// Update bot score
+        /// </summary>
+        public void UpdateBotScore(int score)
+        {
+            if (_currentStats != null)
+            {
+                _currentStats.BotScore = score;
+                OnScoreUpdated?.Invoke(_currentStats.PlayerScore, score);
+            }
+        }
+
+        /// <summary>
+        /// Record round result
+        /// </summary>
+        public void RecordRound(bool playerWon)
+        {
+            if (_currentStats == null)
+                return;
+
+            _currentStats.Rounds++;
+            if (playerWon)
+                _currentStats.Wins++;
+            else
+                _currentStats.Losses++;
+
+            // Also record in adaptive difficulty system
+            if (AdaptiveDifficultySystem.Instance != null && _currentConfig.TrackStats)
+            {
+                AdaptiveDifficultySystem.Instance.RecordMatch(
+                    _currentStats.PlayerScore,
+                    _currentStats.BotScore,
+                    _currentConfig.GameId
+                );
+            }
+        }
+
+        /// <summary>
+        /// Update accuracy stat
+        /// </summary>
+        public void UpdateAccuracy(float accuracy)
+        {
+            if (_currentStats != null)
+                _currentStats.AccuracyRate = accuracy;
+        }
+
+        /// <summary>
+        /// Update combo stat
+        /// </summary>
+        public void UpdateCombo(int combo)
+        {
+            if (_currentStats != null && combo > _currentStats.HighestCombo)
+                _currentStats.HighestCombo = combo;
+        }
+
+        #endregion
+
+        #region Statistics
+
+        /// <summary>
+        /// Get session history
+        /// </summary>
+        public List<PracticeStats> GetSessionHistory()
+        {
+            return new List<PracticeStats>(_sessionHistory);
+        }
+
+        /// <summary>
+        /// Get aggregate stats
+        /// </summary>
+        public PracticeStats GetAggregateStats()
+        {
+            var aggregate = new PracticeStats();
+
+            foreach (var session in _sessionHistory)
+            {
+                aggregate.Duration += session.Duration;
+                aggregate.PlayerScore += session.PlayerScore;
+                aggregate.BotScore += session.BotScore;
+                aggregate.Wins += session.Wins;
+                aggregate.Losses += session.Losses;
+                aggregate.Rounds += session.Rounds;
+                if (session.HighestCombo > aggregate.HighestCombo)
+                    aggregate.HighestCombo = session.HighestCombo;
+            }
+
+            return aggregate;
+        }
+
+        /// <summary>
+        /// Clear session history
+        /// </summary>
+        public void ClearHistory()
+        {
+            _sessionHistory.Clear();
+            if (_persistStats)
+                SaveStats();
+        }
+
+        private void SaveStats()
+        {
+            // Simplified persistence
+            string json = JsonUtility.ToJson(new PracticeStatsData
+            {
+                Sessions = _sessionHistory
+            });
+            PlayerPrefs.SetString("deskillz_practice_stats", json);
+            PlayerPrefs.Save();
+        }
+
+        private void LoadStats()
+        {
+            string json = PlayerPrefs.GetString("deskillz_practice_stats", "");
+            if (!string.IsNullOrEmpty(json))
+            {
+                try
+                {
+                    var data = JsonUtility.FromJson<PracticeStatsData>(json);
+                    _sessionHistory.Clear();
+                    _sessionHistory.AddRange(data.Sessions);
+                }
+                catch
+                {
+                    // Ignore invalid data
+                }
+            }
+        }
+
+        [Serializable]
+        private class PracticeStatsData
+        {
+            public List<PracticeStats> Sessions = new List<PracticeStats>();
+        }
+
+        #endregion
+    }
+}

@@ -1,0 +1,839 @@
+// ============================================================================
+// Deskillz SDK - A/B Testing Manager
+// Experiment framework with variants and result tracking
+// ============================================================================
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Networking;
+
+namespace Deskillz.SDK.Analytics
+{
+    /// <summary>
+    /// Experiment status
+    /// </summary>
+    public enum ExperimentStatus
+    {
+        Draft,      // Not yet active
+        Running,    // Currently active
+        Paused,     // Temporarily paused
+        Completed,  // Finished collecting data
+        Archived    // No longer relevant
+    }
+
+    /// <summary>
+    /// Variant assignment method
+    /// </summary>
+    public enum AssignmentMethod
+    {
+        Random,         // Random assignment
+        UserIdHash,     // Deterministic based on user ID
+        DeviceIdHash,   // Deterministic based on device ID
+        Segmented,      // Based on user segments
+        Sequential      // Rotating assignment
+    }
+
+    /// <summary>
+    /// Experiment variant
+    /// </summary>
+    [Serializable]
+    public class ExperimentVariant
+    {
+        public string VariantId;
+        public string Name;
+        public float Weight;
+        public Dictionary<string, object> Parameters;
+        public int Impressions;
+        public int Conversions;
+        public float TotalValue;
+
+        public ExperimentVariant()
+        {
+            VariantId = Guid.NewGuid().ToString("N").Substring(0, 8);
+            Parameters = new Dictionary<string, object>();
+        }
+
+        public ExperimentVariant(string name, float weight = 1f) : this()
+        {
+            Name = name;
+            Weight = weight;
+        }
+
+        public float ConversionRate => Impressions > 0 ? (float)Conversions / Impressions : 0f;
+        public float AverageValue => Conversions > 0 ? TotalValue / Conversions : 0f;
+
+        public ExperimentVariant SetParameter(string key, object value)
+        {
+            Parameters[key] = value;
+            return this;
+        }
+    }
+
+    /// <summary>
+    /// Experiment definition
+    /// </summary>
+    [Serializable]
+    public class Experiment
+    {
+        public string ExperimentId;
+        public string Name;
+        public string Description;
+        public ExperimentStatus Status;
+        public AssignmentMethod AssignmentMethod;
+        public List<ExperimentVariant> Variants;
+        public DateTime StartDate;
+        public DateTime? EndDate;
+        public string TargetEvent;
+        public List<string> TargetSegments;
+        public float MinSampleSize;
+        public float StatisticalSignificance;
+
+        public Experiment()
+        {
+            ExperimentId = Guid.NewGuid().ToString("N").Substring(0, 12);
+            Variants = new List<ExperimentVariant>();
+            TargetSegments = new List<string>();
+            AssignmentMethod = AssignmentMethod.UserIdHash;
+            MinSampleSize = 100;
+            StatisticalSignificance = 0.95f;
+        }
+
+        public Experiment(string name, string description = "") : this()
+        {
+            Name = name;
+            Description = description;
+        }
+
+        public int TotalImpressions
+        {
+            get
+            {
+                int total = 0;
+                foreach (var v in Variants) total += v.Impressions;
+                return total;
+            }
+        }
+
+        public ExperimentVariant GetWinningVariant()
+        {
+            if (Variants.Count == 0) return null;
+
+            ExperimentVariant best = Variants[0];
+            foreach (var variant in Variants)
+            {
+                if (variant.ConversionRate > best.ConversionRate)
+                    best = variant;
+            }
+            return best;
+        }
+    }
+
+    /// <summary>
+    /// User's experiment assignments
+    /// </summary>
+    [Serializable]
+    public class UserAssignments
+    {
+        public string UserId;
+        public Dictionary<string, string> Assignments; // experimentId -> variantId
+        public DateTime LastUpdated;
+
+        public UserAssignments()
+        {
+            Assignments = new Dictionary<string, string>();
+        }
+    }
+
+    /// <summary>
+    /// Experiment event for tracking
+    /// </summary>
+    [Serializable]
+    public class ExperimentEvent
+    {
+        public string ExperimentId;
+        public string VariantId;
+        public string EventType; // impression, conversion, value
+        public float Value;
+        public long Timestamp;
+    }
+
+    /// <summary>
+    /// A/B Testing Manager
+    /// </summary>
+    public class ABTestingManager : MonoBehaviour
+    {
+        private static ABTestingManager _instance;
+        public static ABTestingManager Instance => _instance;
+
+        [Header("Configuration")]
+        [SerializeField] private string _configEndpoint = "https://api.deskillz.games/experiments/v1";
+        [SerializeField] private string _apiKey = "";
+        [SerializeField] private float _configRefreshInterval = 300f;
+        [SerializeField] private bool _persistAssignments = true;
+
+        // Experiments
+        private readonly Dictionary<string, Experiment> _experiments = new Dictionary<string, Experiment>();
+        private UserAssignments _userAssignments;
+        private string _userId;
+        private string _deviceId;
+
+        // Local overrides (for testing)
+        private readonly Dictionary<string, string> _overrides = new Dictionary<string, string>();
+
+        // Events
+        public event Action<string, ExperimentVariant> OnVariantAssigned;
+        public event Action<string, ExperimentVariant> OnConversion;
+        public event Action OnConfigUpdated;
+
+        // Properties
+        public IReadOnlyDictionary<string, Experiment> Experiments => _experiments;
+        public UserAssignments Assignments => _userAssignments;
+
+        #region Unity Lifecycle
+
+        private void Awake()
+        {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            _deviceId = SystemInfo.deviceUniqueIdentifier;
+            _userAssignments = new UserAssignments();
+
+            if (_persistAssignments)
+                LoadAssignments();
+        }
+
+        private void Start()
+        {
+            // Fetch remote config
+            StartCoroutine(FetchExperimentConfig());
+
+            // Periodic refresh
+            InvokeRepeating(nameof(RefreshConfig), _configRefreshInterval, _configRefreshInterval);
+        }
+
+        private void OnDestroy()
+        {
+            if (_instance == this)
+            {
+                if (_persistAssignments)
+                    SaveAssignments();
+                _instance = null;
+            }
+        }
+
+        #endregion
+
+        #region Configuration
+
+        /// <summary>
+        /// Set user ID for experiment assignment
+        /// </summary>
+        public void SetUserId(string userId)
+        {
+            _userId = userId;
+            _userAssignments.UserId = userId;
+        }
+
+        /// <summary>
+        /// Register a local experiment
+        /// </summary>
+        public Experiment RegisterExperiment(Experiment experiment)
+        {
+            if (experiment == null)
+                return null;
+
+            _experiments[experiment.ExperimentId] = experiment;
+            return experiment;
+        }
+
+        /// <summary>
+        /// Create and register a simple A/B test
+        /// </summary>
+        public Experiment CreateABTest(string name, string controlName = "Control", string treatmentName = "Treatment")
+        {
+            var experiment = new Experiment(name)
+            {
+                Status = ExperimentStatus.Running,
+                StartDate = DateTime.UtcNow
+            };
+
+            experiment.Variants.Add(new ExperimentVariant(controlName, 0.5f));
+            experiment.Variants.Add(new ExperimentVariant(treatmentName, 0.5f));
+
+            return RegisterExperiment(experiment);
+        }
+
+        /// <summary>
+        /// Create multi-variant test
+        /// </summary>
+        public Experiment CreateMultiVariantTest(string name, params string[] variantNames)
+        {
+            var experiment = new Experiment(name)
+            {
+                Status = ExperimentStatus.Running,
+                StartDate = DateTime.UtcNow
+            };
+
+            float weight = 1f / variantNames.Length;
+            foreach (var variantName in variantNames)
+            {
+                experiment.Variants.Add(new ExperimentVariant(variantName, weight));
+            }
+
+            return RegisterExperiment(experiment);
+        }
+
+        private IEnumerator FetchExperimentConfig()
+        {
+            if (string.IsNullOrEmpty(_configEndpoint))
+                yield break;
+
+            string url = $"{_configEndpoint}/config";
+            if (!string.IsNullOrEmpty(_userId))
+                url += $"?userId={_userId}";
+
+            using (var request = UnityWebRequest.Get(url))
+            {
+                request.SetRequestHeader("X-API-Key", _apiKey);
+                request.SetRequestHeader("X-Device-Id", _deviceId);
+
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    try
+                    {
+                        var response = JsonUtility.FromJson<ExperimentConfigResponse>(request.downloadHandler.text);
+                        ProcessRemoteConfig(response);
+                        OnConfigUpdated?.Invoke();
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogWarning($"[ABTesting] Failed to parse config: {e.Message}");
+                    }
+                }
+            }
+        }
+
+        private void ProcessRemoteConfig(ExperimentConfigResponse response)
+        {
+            if (response?.Experiments == null)
+                return;
+
+            foreach (var experiment in response.Experiments)
+            {
+                _experiments[experiment.ExperimentId] = experiment;
+            }
+
+            // Apply server-side assignments
+            if (response.Assignments != null)
+            {
+                foreach (var kvp in response.Assignments)
+                {
+                    _userAssignments.Assignments[kvp.Key] = kvp.Value;
+                }
+            }
+        }
+
+        private void RefreshConfig()
+        {
+            StartCoroutine(FetchExperimentConfig());
+        }
+
+        [Serializable]
+        private class ExperimentConfigResponse
+        {
+            public List<Experiment> Experiments;
+            public Dictionary<string, string> Assignments;
+        }
+
+        #endregion
+
+        #region Variant Assignment
+
+        /// <summary>
+        /// Get variant for an experiment
+        /// </summary>
+        public ExperimentVariant GetVariant(string experimentId)
+        {
+            // Check override first
+            if (_overrides.TryGetValue(experimentId, out string overrideVariantId))
+            {
+                return GetVariantById(experimentId, overrideVariantId);
+            }
+
+            // Check existing assignment
+            if (_userAssignments.Assignments.TryGetValue(experimentId, out string assignedVariantId))
+            {
+                return GetVariantById(experimentId, assignedVariantId);
+            }
+
+            // Get experiment
+            if (!_experiments.TryGetValue(experimentId, out var experiment))
+                return null;
+
+            // Check if experiment is running
+            if (experiment.Status != ExperimentStatus.Running)
+                return null;
+
+            // Assign variant
+            var variant = AssignVariant(experiment);
+            if (variant != null)
+            {
+                _userAssignments.Assignments[experimentId] = variant.VariantId;
+                _userAssignments.LastUpdated = DateTime.UtcNow;
+
+                if (_persistAssignments)
+                    SaveAssignments();
+
+                // Track impression
+                TrackImpression(experimentId, variant.VariantId);
+
+                OnVariantAssigned?.Invoke(experimentId, variant);
+            }
+
+            return variant;
+        }
+
+        /// <summary>
+        /// Get variant by name
+        /// </summary>
+        public ExperimentVariant GetVariantByName(string experimentId, string variantName)
+        {
+            if (!_experiments.TryGetValue(experimentId, out var experiment))
+                return null;
+
+            return experiment.Variants.Find(v => v.Name == variantName);
+        }
+
+        private ExperimentVariant GetVariantById(string experimentId, string variantId)
+        {
+            if (!_experiments.TryGetValue(experimentId, out var experiment))
+                return null;
+
+            return experiment.Variants.Find(v => v.VariantId == variantId);
+        }
+
+        private ExperimentVariant AssignVariant(Experiment experiment)
+        {
+            if (experiment.Variants.Count == 0)
+                return null;
+
+            switch (experiment.AssignmentMethod)
+            {
+                case AssignmentMethod.Random:
+                    return AssignRandomVariant(experiment);
+
+                case AssignmentMethod.UserIdHash:
+                    return AssignByHash(experiment, _userId ?? _deviceId);
+
+                case AssignmentMethod.DeviceIdHash:
+                    return AssignByHash(experiment, _deviceId);
+
+                case AssignmentMethod.Segmented:
+                    return AssignBySegment(experiment);
+
+                case AssignmentMethod.Sequential:
+                    return AssignSequential(experiment);
+
+                default:
+                    return AssignRandomVariant(experiment);
+            }
+        }
+
+        private ExperimentVariant AssignRandomVariant(Experiment experiment)
+        {
+            float totalWeight = 0f;
+            foreach (var v in experiment.Variants)
+                totalWeight += v.Weight;
+
+            float random = UnityEngine.Random.Range(0f, totalWeight);
+            float cumulative = 0f;
+
+            foreach (var variant in experiment.Variants)
+            {
+                cumulative += variant.Weight;
+                if (random <= cumulative)
+                    return variant;
+            }
+
+            return experiment.Variants[experiment.Variants.Count - 1];
+        }
+
+        private ExperimentVariant AssignByHash(Experiment experiment, string hashInput)
+        {
+            if (string.IsNullOrEmpty(hashInput))
+                return AssignRandomVariant(experiment);
+
+            // Create deterministic hash
+            string combined = experiment.ExperimentId + hashInput;
+            int hash = GetStableHash(combined);
+            float normalized = (hash & 0x7FFFFFFF) / (float)int.MaxValue;
+
+            float totalWeight = 0f;
+            foreach (var v in experiment.Variants)
+                totalWeight += v.Weight;
+
+            float threshold = normalized * totalWeight;
+            float cumulative = 0f;
+
+            foreach (var variant in experiment.Variants)
+            {
+                cumulative += variant.Weight;
+                if (threshold <= cumulative)
+                    return variant;
+            }
+
+            return experiment.Variants[experiment.Variants.Count - 1];
+        }
+
+        private ExperimentVariant AssignBySegment(Experiment experiment)
+        {
+            // Would integrate with user segments
+            // For now, fall back to hash-based
+            return AssignByHash(experiment, _userId ?? _deviceId);
+        }
+
+        private ExperimentVariant AssignSequential(Experiment experiment)
+        {
+            int index = experiment.TotalImpressions % experiment.Variants.Count;
+            return experiment.Variants[index];
+        }
+
+        private int GetStableHash(string input)
+        {
+            unchecked
+            {
+                int hash = 23;
+                foreach (char c in input)
+                {
+                    hash = hash * 31 + c;
+                }
+                return hash;
+            }
+        }
+
+        #endregion
+
+        #region Conversion Tracking
+
+        /// <summary>
+        /// Track conversion for an experiment
+        /// </summary>
+        public void TrackConversion(string experimentId, float value = 1f)
+        {
+            if (!_userAssignments.Assignments.TryGetValue(experimentId, out string variantId))
+                return;
+
+            var variant = GetVariantById(experimentId, variantId);
+            if (variant == null)
+                return;
+
+            variant.Conversions++;
+            variant.TotalValue += value;
+
+            OnConversion?.Invoke(experimentId, variant);
+
+            // Track event
+            var experimentEvent = new ExperimentEvent
+            {
+                ExperimentId = experimentId,
+                VariantId = variantId,
+                EventType = "conversion",
+                Value = value,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+
+            SendExperimentEvent(experimentEvent);
+
+            // Also track in main analytics
+            AnalyticsManager.Instance?.Track("experiment_conversion", EventCategory.Custom, 
+                new Dictionary<string, object>
+                {
+                    ["experiment_id"] = experimentId,
+                    ["variant_id"] = variantId,
+                    ["variant_name"] = variant.Name,
+                    ["value"] = value
+                });
+        }
+
+        /// <summary>
+        /// Track impression
+        /// </summary>
+        private void TrackImpression(string experimentId, string variantId)
+        {
+            var variant = GetVariantById(experimentId, variantId);
+            if (variant != null)
+            {
+                variant.Impressions++;
+            }
+
+            var experimentEvent = new ExperimentEvent
+            {
+                ExperimentId = experimentId,
+                VariantId = variantId,
+                EventType = "impression",
+                Value = 0,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+
+            SendExperimentEvent(experimentEvent);
+
+            AnalyticsManager.Instance?.Track("experiment_impression", EventCategory.Custom, 
+                new Dictionary<string, object>
+                {
+                    ["experiment_id"] = experimentId,
+                    ["variant_id"] = variantId,
+                    ["variant_name"] = variant?.Name ?? ""
+                });
+        }
+
+        private void SendExperimentEvent(ExperimentEvent evt)
+        {
+            // Would send to backend
+            // StartCoroutine(SendEventToBackend(evt));
+        }
+
+        #endregion
+
+        #region Parameter Access
+
+        /// <summary>
+        /// Get parameter value from assigned variant
+        /// </summary>
+        public T GetParameter<T>(string experimentId, string parameterName, T defaultValue = default)
+        {
+            var variant = GetVariant(experimentId);
+            if (variant == null)
+                return defaultValue;
+
+            if (variant.Parameters.TryGetValue(parameterName, out object value))
+            {
+                try
+                {
+                    return (T)Convert.ChangeType(value, typeof(T));
+                }
+                catch
+                {
+                    return defaultValue;
+                }
+            }
+
+            return defaultValue;
+        }
+
+        /// <summary>
+        /// Check if user is in specific variant
+        /// </summary>
+        public bool IsInVariant(string experimentId, string variantName)
+        {
+            var variant = GetVariant(experimentId);
+            return variant != null && variant.Name == variantName;
+        }
+
+        /// <summary>
+        /// Check if user is in treatment group (non-control)
+        /// </summary>
+        public bool IsInTreatment(string experimentId)
+        {
+            var variant = GetVariant(experimentId);
+            return variant != null && variant.Name != "Control";
+        }
+
+        #endregion
+
+        #region Overrides (Testing)
+
+        /// <summary>
+        /// Override variant assignment (for testing)
+        /// </summary>
+        public void SetOverride(string experimentId, string variantId)
+        {
+            _overrides[experimentId] = variantId;
+        }
+
+        /// <summary>
+        /// Clear override
+        /// </summary>
+        public void ClearOverride(string experimentId)
+        {
+            _overrides.Remove(experimentId);
+        }
+
+        /// <summary>
+        /// Clear all overrides
+        /// </summary>
+        public void ClearAllOverrides()
+        {
+            _overrides.Clear();
+        }
+
+        #endregion
+
+        #region Results
+
+        /// <summary>
+        /// Get experiment results
+        /// </summary>
+        public ExperimentResults GetResults(string experimentId)
+        {
+            if (!_experiments.TryGetValue(experimentId, out var experiment))
+                return null;
+
+            var results = new ExperimentResults
+            {
+                ExperimentId = experimentId,
+                Name = experiment.Name,
+                Status = experiment.Status,
+                TotalImpressions = experiment.TotalImpressions,
+                VariantResults = new List<VariantResult>()
+            };
+
+            foreach (var variant in experiment.Variants)
+            {
+                results.VariantResults.Add(new VariantResult
+                {
+                    VariantId = variant.VariantId,
+                    Name = variant.Name,
+                    Impressions = variant.Impressions,
+                    Conversions = variant.Conversions,
+                    ConversionRate = variant.ConversionRate,
+                    AverageValue = variant.AverageValue,
+                    TotalValue = variant.TotalValue
+                });
+            }
+
+            // Determine winner
+            var winner = experiment.GetWinningVariant();
+            if (winner != null && experiment.TotalImpressions >= experiment.MinSampleSize)
+            {
+                results.WinningVariantId = winner.VariantId;
+                results.WinningVariantName = winner.Name;
+                results.IsStatisticallySignificant = CalculateSignificance(experiment) >= experiment.StatisticalSignificance;
+            }
+
+            return results;
+        }
+
+        private float CalculateSignificance(Experiment experiment)
+        {
+            if (experiment.Variants.Count < 2)
+                return 0f;
+
+            // Simplified statistical significance calculation
+            // In production, use proper statistical tests (chi-square, etc.)
+            var control = experiment.Variants[0];
+            var treatment = experiment.Variants[1];
+
+            if (control.Impressions < 10 || treatment.Impressions < 10)
+                return 0f;
+
+            float controlRate = control.ConversionRate;
+            float treatmentRate = treatment.ConversionRate;
+            float pooledRate = (control.Conversions + treatment.Conversions) / 
+                              (float)(control.Impressions + treatment.Impressions);
+
+            float standardError = Mathf.Sqrt(pooledRate * (1 - pooledRate) * 
+                                            (1f / control.Impressions + 1f / treatment.Impressions));
+
+            if (standardError <= 0)
+                return 0f;
+
+            float zScore = Mathf.Abs(treatmentRate - controlRate) / standardError;
+
+            // Convert z-score to approximate confidence level
+            if (zScore >= 2.576f) return 0.99f;
+            if (zScore >= 1.96f) return 0.95f;
+            if (zScore >= 1.645f) return 0.90f;
+            if (zScore >= 1.28f) return 0.80f;
+
+            return 0.5f + (zScore / 5f) * 0.3f;
+        }
+
+        #endregion
+
+        #region Persistence
+
+        private void SaveAssignments()
+        {
+            try
+            {
+                string json = JsonUtility.ToJson(_userAssignments);
+                PlayerPrefs.SetString("deskillz_ab_assignments", json);
+                PlayerPrefs.Save();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[ABTesting] Failed to save assignments: {e.Message}");
+            }
+        }
+
+        private void LoadAssignments()
+        {
+            try
+            {
+                string json = PlayerPrefs.GetString("deskillz_ab_assignments", "");
+                if (!string.IsNullOrEmpty(json))
+                {
+                    _userAssignments = JsonUtility.FromJson<UserAssignments>(json);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[ABTesting] Failed to load assignments: {e.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Clear all assignments
+        /// </summary>
+        public void ClearAssignments()
+        {
+            _userAssignments = new UserAssignments { UserId = _userId };
+            PlayerPrefs.DeleteKey("deskillz_ab_assignments");
+            PlayerPrefs.Save();
+        }
+
+        #endregion
+    }
+
+    /// <summary>
+    /// Experiment results
+    /// </summary>
+    [Serializable]
+    public class ExperimentResults
+    {
+        public string ExperimentId;
+        public string Name;
+        public ExperimentStatus Status;
+        public int TotalImpressions;
+        public List<VariantResult> VariantResults;
+        public string WinningVariantId;
+        public string WinningVariantName;
+        public bool IsStatisticallySignificant;
+    }
+
+    /// <summary>
+    /// Individual variant result
+    /// </summary>
+    [Serializable]
+    public class VariantResult
+    {
+        public string VariantId;
+        public string Name;
+        public int Impressions;
+        public int Conversions;
+        public float ConversionRate;
+        public float AverageValue;
+        public float TotalValue;
+    }
+}

@@ -1,0 +1,943 @@
+// ============================================================================
+// Deskillz SDK - Heatmap Recorder
+// Position tracking, interaction heat maps, and session recording
+// ============================================================================
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
+using UnityEngine;
+
+namespace Deskillz.SDK.Analytics
+{
+    /// <summary>
+    /// Types of heatmap data
+    /// </summary>
+    public enum HeatmapType
+    {
+        Position,       // Player position over time
+        Click,          // Click/tap locations
+        Gaze,           // Look direction
+        Death,          // Where players die
+        Spawn,          // Where players spawn
+        Interaction,    // Object interactions
+        Custom          // User-defined
+    }
+
+    /// <summary>
+    /// Single heatmap data point
+    /// </summary>
+    [Serializable]
+    public class HeatmapPoint
+    {
+        public float X;
+        public float Y;
+        public float Z;
+        public float Intensity;
+        public float Timestamp;
+        public string Category;
+        public Dictionary<string, string> Metadata;
+
+        public HeatmapPoint()
+        {
+            Metadata = new Dictionary<string, string>();
+        }
+
+        public HeatmapPoint(Vector3 position, float intensity = 1f, string category = null) : this()
+        {
+            X = position.x;
+            Y = position.y;
+            Z = position.z;
+            Intensity = intensity;
+            Timestamp = Time.time;
+            Category = category;
+        }
+
+        public Vector3 Position => new Vector3(X, Y, Z);
+    }
+
+    /// <summary>
+    /// 2D heatmap point for UI/screen
+    /// </summary>
+    [Serializable]
+    public class HeatmapPoint2D
+    {
+        public float X;
+        public float Y;
+        public float Intensity;
+        public float Timestamp;
+        public string ScreenName;
+
+        public HeatmapPoint2D() { }
+
+        public HeatmapPoint2D(Vector2 position, float intensity = 1f, string screenName = null)
+        {
+            X = position.x;
+            Y = position.y;
+            Intensity = intensity;
+            Timestamp = Time.time;
+            ScreenName = screenName;
+        }
+
+        public Vector2 Position => new Vector2(X, Y);
+    }
+
+    /// <summary>
+    /// Session recording frame
+    /// </summary>
+    [Serializable]
+    public class RecordingFrame
+    {
+        public float Timestamp;
+        public Vector3 PlayerPosition;
+        public Quaternion PlayerRotation;
+        public Vector2 InputDirection;
+        public List<string> ActiveInputs;
+        public string CurrentScreen;
+        public Dictionary<string, object> CustomData;
+
+        public RecordingFrame()
+        {
+            ActiveInputs = new List<string>();
+            CustomData = new Dictionary<string, object>();
+        }
+    }
+
+    /// <summary>
+    /// Session recording
+    /// </summary>
+    [Serializable]
+    public class SessionRecording
+    {
+        public string RecordingId;
+        public string SessionId;
+        public string UserId;
+        public DateTime StartTime;
+        public DateTime EndTime;
+        public float Duration;
+        public List<RecordingFrame> Frames;
+        public List<HeatmapPoint> HeatmapPoints;
+        public List<HeatmapPoint2D> ScreenPoints;
+        public Dictionary<string, string> Metadata;
+
+        public SessionRecording()
+        {
+            RecordingId = Guid.NewGuid().ToString("N").Substring(0, 12);
+            StartTime = DateTime.UtcNow;
+            Frames = new List<RecordingFrame>();
+            HeatmapPoints = new List<HeatmapPoint>();
+            ScreenPoints = new List<HeatmapPoint2D>();
+            Metadata = new Dictionary<string, string>();
+        }
+    }
+
+    /// <summary>
+    /// Aggregated heatmap grid
+    /// </summary>
+    [Serializable]
+    public class HeatmapGrid
+    {
+        public string GridId;
+        public HeatmapType Type;
+        public Vector3 Origin;
+        public Vector3 Size;
+        public int ResolutionX;
+        public int ResolutionY;
+        public int ResolutionZ;
+        public float[,,] Data;
+        public float MaxValue;
+        public int TotalPoints;
+
+        public HeatmapGrid(Vector3 origin, Vector3 size, int resX, int resY, int resZ, HeatmapType type)
+        {
+            GridId = Guid.NewGuid().ToString("N").Substring(0, 8);
+            Type = type;
+            Origin = origin;
+            Size = size;
+            ResolutionX = resX;
+            ResolutionY = resY;
+            ResolutionZ = resZ;
+            Data = new float[resX, resY, resZ];
+        }
+
+        public void AddPoint(Vector3 worldPosition, float intensity = 1f)
+        {
+            Vector3 localPos = worldPosition - Origin;
+            int x = Mathf.Clamp((int)(localPos.x / Size.x * ResolutionX), 0, ResolutionX - 1);
+            int y = Mathf.Clamp((int)(localPos.y / Size.y * ResolutionY), 0, ResolutionY - 1);
+            int z = Mathf.Clamp((int)(localPos.z / Size.z * ResolutionZ), 0, ResolutionZ - 1);
+
+            Data[x, y, z] += intensity;
+            TotalPoints++;
+
+            if (Data[x, y, z] > MaxValue)
+                MaxValue = Data[x, y, z];
+        }
+
+        public float GetValue(int x, int y, int z)
+        {
+            if (x < 0 || x >= ResolutionX || y < 0 || y >= ResolutionY || z < 0 || z >= ResolutionZ)
+                return 0f;
+            return Data[x, y, z];
+        }
+
+        public float GetNormalizedValue(int x, int y, int z)
+        {
+            if (MaxValue <= 0) return 0f;
+            return GetValue(x, y, z) / MaxValue;
+        }
+
+        public Vector3 GetWorldPosition(int x, int y, int z)
+        {
+            return Origin + new Vector3(
+                (x + 0.5f) / ResolutionX * Size.x,
+                (y + 0.5f) / ResolutionY * Size.y,
+                (z + 0.5f) / ResolutionZ * Size.z
+            );
+        }
+    }
+
+    /// <summary>
+    /// 2D Heatmap grid for UI
+    /// </summary>
+    [Serializable]
+    public class HeatmapGrid2D
+    {
+        public string GridId;
+        public string ScreenName;
+        public int Width;
+        public int Height;
+        public float[,] Data;
+        public float MaxValue;
+        public int TotalPoints;
+
+        public HeatmapGrid2D(string screenName, int width = 100, int height = 100)
+        {
+            GridId = Guid.NewGuid().ToString("N").Substring(0, 8);
+            ScreenName = screenName;
+            Width = width;
+            Height = height;
+            Data = new float[width, height];
+        }
+
+        public void AddPoint(Vector2 normalizedPosition, float intensity = 1f)
+        {
+            int x = Mathf.Clamp((int)(normalizedPosition.x * Width), 0, Width - 1);
+            int y = Mathf.Clamp((int)(normalizedPosition.y * Height), 0, Height - 1);
+
+            Data[x, y] += intensity;
+            TotalPoints++;
+
+            if (Data[x, y] > MaxValue)
+                MaxValue = Data[x, y];
+        }
+
+        public float GetNormalizedValue(int x, int y)
+        {
+            if (MaxValue <= 0 || x < 0 || x >= Width || y < 0 || y >= Height)
+                return 0f;
+            return Data[x, y] / MaxValue;
+        }
+    }
+
+    /// <summary>
+    /// Heatmap recorder configuration
+    /// </summary>
+    [Serializable]
+    public class HeatmapConfig
+    {
+        [Header("Recording")]
+        public bool EnableRecording = true;
+        public float RecordingInterval = 0.1f;
+        public int MaxRecordingFrames = 36000; // 1 hour at 10fps
+        public bool RecordPlayerPosition = true;
+        public bool RecordPlayerInput = true;
+        public bool RecordScreenPosition = true;
+
+        [Header("Heatmaps")]
+        public bool EnableHeatmaps = true;
+        public float HeatmapInterval = 0.5f;
+        public Vector3 WorldBoundsMin = new Vector3(-100, -10, -100);
+        public Vector3 WorldBoundsMax = new Vector3(100, 50, 100);
+        public int GridResolution = 50;
+
+        [Header("Storage")]
+        public bool SaveRecordings = true;
+        public string SaveDirectory = "HeatmapData";
+        public int MaxSavedRecordings = 10;
+        public bool CompressData = true;
+    }
+
+    /// <summary>
+    /// Heatmap Recorder - Records player positions and interactions
+    /// </summary>
+    public class HeatmapRecorder : MonoBehaviour
+    {
+        private static HeatmapRecorder _instance;
+        public static HeatmapRecorder Instance => _instance;
+
+        [Header("Configuration")]
+        [SerializeField] private HeatmapConfig _config;
+
+        [Header("Tracking Target")]
+        [SerializeField] private Transform _playerTransform;
+
+        // Recording state
+        private SessionRecording _currentRecording;
+        private bool _isRecording;
+        private float _recordTimer;
+        private float _heatmapTimer;
+
+        // Heatmap grids
+        private readonly Dictionary<HeatmapType, HeatmapGrid> _heatmapGrids = new Dictionary<HeatmapType, HeatmapGrid>();
+        private readonly Dictionary<string, HeatmapGrid2D> _screenHeatmaps = new Dictionary<string, HeatmapGrid2D>();
+
+        // Current state
+        private string _currentScreen;
+        private Vector3 _lastRecordedPosition;
+
+        // Input tracking
+        private Func<Vector2> _inputProvider;
+        private Func<List<string>> _activeInputsProvider;
+
+        // Events
+        public event Action<SessionRecording> OnRecordingStarted;
+        public event Action<SessionRecording> OnRecordingStopped;
+        public event Action<HeatmapPoint> OnPointRecorded;
+
+        // Properties
+        public bool IsRecording => _isRecording;
+        public SessionRecording CurrentRecording => _currentRecording;
+        public HeatmapConfig Config => _config;
+
+        #region Unity Lifecycle
+
+        private void Awake()
+        {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            if (_config == null)
+                _config = new HeatmapConfig();
+
+            InitializeHeatmapGrids();
+        }
+
+        private void Start()
+        {
+            if (_config.EnableRecording)
+                StartRecording();
+        }
+
+        private void Update()
+        {
+            if (!_isRecording)
+                return;
+
+            // Record frames
+            _recordTimer += Time.deltaTime;
+            if (_recordTimer >= _config.RecordingInterval)
+            {
+                RecordFrame();
+                _recordTimer = 0f;
+            }
+
+            // Update heatmaps
+            if (_config.EnableHeatmaps)
+            {
+                _heatmapTimer += Time.deltaTime;
+                if (_heatmapTimer >= _config.HeatmapInterval)
+                {
+                    UpdateHeatmaps();
+                    _heatmapTimer = 0f;
+                }
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (_instance == this)
+            {
+                StopRecording();
+                _instance = null;
+            }
+        }
+
+        private void OnApplicationQuit()
+        {
+            StopRecording();
+        }
+
+        #endregion
+
+        #region Initialization
+
+        private void InitializeHeatmapGrids()
+        {
+            Vector3 origin = _config.WorldBoundsMin;
+            Vector3 size = _config.WorldBoundsMax - _config.WorldBoundsMin;
+            int res = _config.GridResolution;
+
+            _heatmapGrids[HeatmapType.Position] = new HeatmapGrid(origin, size, res, res / 2, res, HeatmapType.Position);
+            _heatmapGrids[HeatmapType.Death] = new HeatmapGrid(origin, size, res, res / 2, res, HeatmapType.Death);
+            _heatmapGrids[HeatmapType.Interaction] = new HeatmapGrid(origin, size, res, res / 2, res, HeatmapType.Interaction);
+        }
+
+        /// <summary>
+        /// Set the player transform to track
+        /// </summary>
+        public void SetPlayerTransform(Transform player)
+        {
+            _playerTransform = player;
+        }
+
+        /// <summary>
+        /// Set input provider
+        /// </summary>
+        public void SetInputProvider(Func<Vector2> provider)
+        {
+            _inputProvider = provider;
+        }
+
+        /// <summary>
+        /// Set active inputs provider
+        /// </summary>
+        public void SetActiveInputsProvider(Func<List<string>> provider)
+        {
+            _activeInputsProvider = provider;
+        }
+
+        /// <summary>
+        /// Set current screen name
+        /// </summary>
+        public void SetCurrentScreen(string screenName)
+        {
+            _currentScreen = screenName;
+
+            // Create screen heatmap if needed
+            if (!_screenHeatmaps.ContainsKey(screenName))
+            {
+                _screenHeatmaps[screenName] = new HeatmapGrid2D(screenName);
+            }
+        }
+
+        #endregion
+
+        #region Recording Control
+
+        /// <summary>
+        /// Start recording
+        /// </summary>
+        public void StartRecording(string sessionId = null, string userId = null)
+        {
+            if (_isRecording)
+                return;
+
+            _currentRecording = new SessionRecording
+            {
+                SessionId = sessionId ?? Guid.NewGuid().ToString("N"),
+                UserId = userId ?? ""
+            };
+
+            _isRecording = true;
+            _recordTimer = 0f;
+            _heatmapTimer = 0f;
+
+            OnRecordingStarted?.Invoke(_currentRecording);
+
+            Debug.Log($"[Heatmap] Recording started: {_currentRecording.RecordingId}");
+        }
+
+        /// <summary>
+        /// Stop recording
+        /// </summary>
+        public SessionRecording StopRecording(bool save = true)
+        {
+            if (!_isRecording)
+                return null;
+
+            _isRecording = false;
+
+            _currentRecording.EndTime = DateTime.UtcNow;
+            _currentRecording.Duration = (float)(_currentRecording.EndTime - _currentRecording.StartTime).TotalSeconds;
+
+            OnRecordingStopped?.Invoke(_currentRecording);
+
+            if (save && _config.SaveRecordings)
+            {
+                SaveRecording(_currentRecording);
+            }
+
+            Debug.Log($"[Heatmap] Recording stopped: {_currentRecording.Frames.Count} frames, {_currentRecording.Duration:F1}s");
+
+            var recording = _currentRecording;
+            _currentRecording = null;
+
+            return recording;
+        }
+
+        /// <summary>
+        /// Pause recording
+        /// </summary>
+        public void PauseRecording()
+        {
+            _isRecording = false;
+        }
+
+        /// <summary>
+        /// Resume recording
+        /// </summary>
+        public void ResumeRecording()
+        {
+            if (_currentRecording != null)
+                _isRecording = true;
+        }
+
+        #endregion
+
+        #region Frame Recording
+
+        private void RecordFrame()
+        {
+            if (_currentRecording == null)
+                return;
+
+            if (_currentRecording.Frames.Count >= _config.MaxRecordingFrames)
+            {
+                Debug.LogWarning("[Heatmap] Max frames reached");
+                return;
+            }
+
+            var frame = new RecordingFrame
+            {
+                Timestamp = Time.time,
+                CurrentScreen = _currentScreen
+            };
+
+            // Record player position
+            if (_config.RecordPlayerPosition && _playerTransform != null)
+            {
+                frame.PlayerPosition = _playerTransform.position;
+                frame.PlayerRotation = _playerTransform.rotation;
+            }
+
+            // Record input
+            if (_config.RecordPlayerInput)
+            {
+                frame.InputDirection = _inputProvider?.Invoke() ?? Vector2.zero;
+                frame.ActiveInputs = _activeInputsProvider?.Invoke() ?? new List<string>();
+            }
+
+            _currentRecording.Frames.Add(frame);
+        }
+
+        private void UpdateHeatmaps()
+        {
+            if (_playerTransform == null)
+                return;
+
+            Vector3 position = _playerTransform.position;
+
+            // Don't record if position hasn't changed significantly
+            if (Vector3.Distance(position, _lastRecordedPosition) < 0.1f)
+                return;
+
+            _lastRecordedPosition = position;
+
+            // Add to position heatmap
+            var point = new HeatmapPoint(position, 1f, "position");
+            RecordHeatmapPoint(HeatmapType.Position, point);
+        }
+
+        #endregion
+
+        #region Heatmap Recording
+
+        /// <summary>
+        /// Record a heatmap point
+        /// </summary>
+        public void RecordHeatmapPoint(HeatmapType type, Vector3 position, float intensity = 1f, string category = null)
+        {
+            var point = new HeatmapPoint(position, intensity, category);
+            RecordHeatmapPoint(type, point);
+        }
+
+        /// <summary>
+        /// Record a heatmap point
+        /// </summary>
+        public void RecordHeatmapPoint(HeatmapType type, HeatmapPoint point)
+        {
+            // Add to current recording
+            if (_currentRecording != null)
+            {
+                _currentRecording.HeatmapPoints.Add(point);
+            }
+
+            // Add to grid
+            if (_heatmapGrids.TryGetValue(type, out var grid))
+            {
+                grid.AddPoint(point.Position, point.Intensity);
+            }
+
+            OnPointRecorded?.Invoke(point);
+        }
+
+        /// <summary>
+        /// Record a death location
+        /// </summary>
+        public void RecordDeath(Vector3 position)
+        {
+            RecordHeatmapPoint(HeatmapType.Death, position, 1f, "death");
+
+            AnalyticsManager.Instance?.Track("player_death", EventCategory.Game, 
+                new Dictionary<string, object>
+                {
+                    ["x"] = position.x,
+                    ["y"] = position.y,
+                    ["z"] = position.z
+                });
+        }
+
+        /// <summary>
+        /// Record an interaction
+        /// </summary>
+        public void RecordInteraction(Vector3 position, string interactionType)
+        {
+            RecordHeatmapPoint(HeatmapType.Interaction, position, 1f, interactionType);
+        }
+
+        /// <summary>
+        /// Record screen click/tap
+        /// </summary>
+        public void RecordScreenPoint(Vector2 screenPosition, float intensity = 1f)
+        {
+            if (string.IsNullOrEmpty(_currentScreen))
+                return;
+
+            // Normalize to 0-1
+            Vector2 normalized = new Vector2(
+                screenPosition.x / Screen.width,
+                screenPosition.y / Screen.height
+            );
+
+            var point = new HeatmapPoint2D(normalized, intensity, _currentScreen);
+
+            if (_currentRecording != null)
+            {
+                _currentRecording.ScreenPoints.Add(point);
+            }
+
+            if (_screenHeatmaps.TryGetValue(_currentScreen, out var grid))
+            {
+                grid.AddPoint(normalized, intensity);
+            }
+        }
+
+        /// <summary>
+        /// Record click at current mouse position
+        /// </summary>
+        public void RecordClick()
+        {
+            RecordScreenPoint(Input.mousePosition);
+        }
+
+        #endregion
+
+        #region Heatmap Access
+
+        /// <summary>
+        /// Get heatmap grid
+        /// </summary>
+        public HeatmapGrid GetHeatmapGrid(HeatmapType type)
+        {
+            return _heatmapGrids.TryGetValue(type, out var grid) ? grid : null;
+        }
+
+        /// <summary>
+        /// Get screen heatmap
+        /// </summary>
+        public HeatmapGrid2D GetScreenHeatmap(string screenName)
+        {
+            return _screenHeatmaps.TryGetValue(screenName, out var grid) ? grid : null;
+        }
+
+        /// <summary>
+        /// Get all screen heatmaps
+        /// </summary>
+        public Dictionary<string, HeatmapGrid2D> GetAllScreenHeatmaps()
+        {
+            return new Dictionary<string, HeatmapGrid2D>(_screenHeatmaps);
+        }
+
+        /// <summary>
+        /// Clear heatmap data
+        /// </summary>
+        public void ClearHeatmaps()
+        {
+            InitializeHeatmapGrids();
+            _screenHeatmaps.Clear();
+        }
+
+        #endregion
+
+        #region Storage
+
+        private string GetSavePath()
+        {
+            return Path.Combine(Application.persistentDataPath, _config.SaveDirectory);
+        }
+
+        /// <summary>
+        /// Save recording to disk
+        /// </summary>
+        public bool SaveRecording(SessionRecording recording)
+        {
+            if (recording == null)
+                return false;
+
+            try
+            {
+                string directory = GetSavePath();
+                if (!Directory.Exists(directory))
+                    Directory.CreateDirectory(directory);
+
+                string filename = $"recording_{recording.RecordingId}.json";
+                string path = Path.Combine(directory, filename);
+
+                string json = JsonUtility.ToJson(recording);
+
+                if (_config.CompressData)
+                {
+                    byte[] data = System.Text.Encoding.UTF8.GetBytes(json);
+                    using (FileStream fs = new FileStream(path + ".gz", FileMode.Create))
+                    using (GZipStream gz = new GZipStream(fs, CompressionMode.Compress))
+                    {
+                        gz.Write(data, 0, data.Length);
+                    }
+                }
+                else
+                {
+                    File.WriteAllText(path, json);
+                }
+
+                CleanupOldRecordings();
+
+                Debug.Log($"[Heatmap] Saved recording: {path}");
+                return true;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[Heatmap] Failed to save: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Load recording from disk
+        /// </summary>
+        public SessionRecording LoadRecording(string recordingId)
+        {
+            try
+            {
+                string directory = GetSavePath();
+                string pathCompressed = Path.Combine(directory, $"recording_{recordingId}.json.gz");
+                string pathUncompressed = Path.Combine(directory, $"recording_{recordingId}.json");
+
+                string json;
+
+                if (File.Exists(pathCompressed))
+                {
+                    using (FileStream fs = new FileStream(pathCompressed, FileMode.Open))
+                    using (GZipStream gz = new GZipStream(fs, CompressionMode.Decompress))
+                    using (MemoryStream ms = new MemoryStream())
+                    {
+                        gz.CopyTo(ms);
+                        json = System.Text.Encoding.UTF8.GetString(ms.ToArray());
+                    }
+                }
+                else if (File.Exists(pathUncompressed))
+                {
+                    json = File.ReadAllText(pathUncompressed);
+                }
+                else
+                {
+                    return null;
+                }
+
+                return JsonUtility.FromJson<SessionRecording>(json);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[Heatmap] Failed to load: {e.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Get list of saved recordings
+        /// </summary>
+        public List<string> GetSavedRecordingIds()
+        {
+            var result = new List<string>();
+
+            try
+            {
+                string directory = GetSavePath();
+                if (!Directory.Exists(directory))
+                    return result;
+
+                foreach (var file in Directory.GetFiles(directory, "recording_*.json*"))
+                {
+                    string filename = Path.GetFileName(file);
+                    string id = filename.Replace("recording_", "").Replace(".json.gz", "").Replace(".json", "");
+                    result.Add(id);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[Heatmap] Failed to list recordings: {e.Message}");
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Delete a recording
+        /// </summary>
+        public bool DeleteRecording(string recordingId)
+        {
+            try
+            {
+                string directory = GetSavePath();
+                string pathCompressed = Path.Combine(directory, $"recording_{recordingId}.json.gz");
+                string pathUncompressed = Path.Combine(directory, $"recording_{recordingId}.json");
+
+                if (File.Exists(pathCompressed))
+                    File.Delete(pathCompressed);
+
+                if (File.Exists(pathUncompressed))
+                    File.Delete(pathUncompressed);
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void CleanupOldRecordings()
+        {
+            try
+            {
+                var ids = GetSavedRecordingIds();
+                while (ids.Count > _config.MaxSavedRecordings)
+                {
+                    DeleteRecording(ids[0]);
+                    ids.RemoveAt(0);
+                }
+            }
+            catch
+            {
+                // Ignore cleanup errors
+            }
+        }
+
+        #endregion
+
+        #region Export
+
+        /// <summary>
+        /// Export heatmap to texture
+        /// </summary>
+        public Texture2D ExportHeatmapToTexture(HeatmapType type, int width = 512, int height = 512)
+        {
+            var grid = GetHeatmapGrid(type);
+            if (grid == null)
+                return null;
+
+            var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            var colors = new Color[width * height];
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int gridX = (int)((float)x / width * grid.ResolutionX);
+                    int gridZ = (int)((float)y / height * grid.ResolutionZ);
+
+                    // Sum across Y axis
+                    float value = 0f;
+                    for (int gridY = 0; gridY < grid.ResolutionY; gridY++)
+                    {
+                        value += grid.GetNormalizedValue(gridX, gridY, gridZ);
+                    }
+                    value = Mathf.Clamp01(value);
+
+                    // Heat gradient: blue -> green -> yellow -> red
+                    Color color = GetHeatColor(value);
+                    color.a = value * 0.8f;
+
+                    colors[y * width + x] = color;
+                }
+            }
+
+            texture.SetPixels(colors);
+            texture.Apply();
+
+            return texture;
+        }
+
+        /// <summary>
+        /// Export screen heatmap to texture
+        /// </summary>
+        public Texture2D ExportScreenHeatmapToTexture(string screenName)
+        {
+            var grid = GetScreenHeatmap(screenName);
+            if (grid == null)
+                return null;
+
+            var texture = new Texture2D(grid.Width, grid.Height, TextureFormat.RGBA32, false);
+            var colors = new Color[grid.Width * grid.Height];
+
+            for (int y = 0; y < grid.Height; y++)
+            {
+                for (int x = 0; x < grid.Width; x++)
+                {
+                    float value = grid.GetNormalizedValue(x, y);
+                    Color color = GetHeatColor(value);
+                    color.a = value * 0.8f;
+                    colors[y * grid.Width + x] = color;
+                }
+            }
+
+            texture.SetPixels(colors);
+            texture.Apply();
+
+            return texture;
+        }
+
+        private Color GetHeatColor(float value)
+        {
+            // Heat gradient
+            if (value < 0.25f)
+                return Color.Lerp(Color.blue, Color.cyan, value * 4f);
+            else if (value < 0.5f)
+                return Color.Lerp(Color.cyan, Color.green, (value - 0.25f) * 4f);
+            else if (value < 0.75f)
+                return Color.Lerp(Color.green, Color.yellow, (value - 0.5f) * 4f);
+            else
+                return Color.Lerp(Color.yellow, Color.red, (value - 0.75f) * 4f);
+        }
+
+        #endregion
+    }
+}

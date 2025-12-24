@@ -1,0 +1,785 @@
+// ============================================================================
+// Deskillz SDK - Adaptive Difficulty System
+// Dynamically adjusts AI difficulty based on player performance
+// ============================================================================
+
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace Deskillz.SDK.NPC
+{
+    /// <summary>
+    /// Player performance snapshot
+    /// </summary>
+    [Serializable]
+    public class PerformanceSnapshot
+    {
+        public float Timestamp;
+        public float WinRate;
+        public float AverageScore;
+        public float ScoreVariance;
+        public int MatchesPlayed;
+        public int Wins;
+        public int Losses;
+        public float AverageMargin;
+        public float RecentTrend;
+
+        public PerformanceSnapshot Clone()
+        {
+            return new PerformanceSnapshot
+            {
+                Timestamp = Timestamp,
+                WinRate = WinRate,
+                AverageScore = AverageScore,
+                ScoreVariance = ScoreVariance,
+                MatchesPlayed = MatchesPlayed,
+                Wins = Wins,
+                Losses = Losses,
+                AverageMargin = AverageMargin,
+                RecentTrend = RecentTrend
+            };
+        }
+    }
+
+    /// <summary>
+    /// Match result for tracking
+    /// </summary>
+    [Serializable]
+    public class MatchResult
+    {
+        public float Timestamp;
+        public int PlayerScore;
+        public int OpponentScore;
+        public float DifficultyLevel;
+        public bool PlayerWon;
+        public float MatchDuration;
+        public string GameId;
+
+        public int ScoreMargin => PlayerScore - OpponentScore;
+
+        public MatchResult() { }
+
+        public MatchResult(int playerScore, int opponentScore, float difficulty, string gameId = null)
+        {
+            Timestamp = Time.time;
+            PlayerScore = playerScore;
+            OpponentScore = opponentScore;
+            DifficultyLevel = difficulty;
+            PlayerWon = playerScore > opponentScore;
+            GameId = gameId ?? "";
+        }
+    }
+
+    /// <summary>
+    /// Difficulty adjustment configuration
+    /// </summary>
+    [Serializable]
+    public class AdaptiveDifficultyConfig
+    {
+        [Header("Target Balance")]
+        [Range(0.3f, 0.7f)]
+        [Tooltip("Target win rate to maintain (0.5 = 50%)")]
+        public float TargetWinRate = 0.5f;
+
+        [Range(0f, 0.2f)]
+        [Tooltip("Acceptable deviation from target")]
+        public float WinRateTolerance = 0.1f;
+
+        [Header("Adjustment Speed")]
+        [Range(0.01f, 0.2f)]
+        [Tooltip("How fast difficulty changes")]
+        public float AdjustmentSpeed = 0.05f;
+
+        [Range(0.5f, 2f)]
+        [Tooltip("Multiplier for adjustment after losing streak")]
+        public float StreakMultiplier = 1.5f;
+
+        [Range(2, 10)]
+        [Tooltip("Number of consecutive results to trigger streak")]
+        public int StreakThreshold = 3;
+
+        [Header("Difficulty Bounds")]
+        [Range(0f, 1f)]
+        public float MinDifficulty = 0.1f;
+
+        [Range(0f, 1f)]
+        public float MaxDifficulty = 0.95f;
+
+        [Range(0f, 0.5f)]
+        [Tooltip("Initial difficulty for new players")]
+        public float InitialDifficulty = 0.4f;
+
+        [Header("Rubber Banding")]
+        public bool EnableRubberBanding = true;
+
+        [Range(0f, 1f)]
+        [Tooltip("How strongly to pull toward competitive matches")]
+        public float RubberBandStrength = 0.3f;
+
+        [Range(0.1f, 0.5f)]
+        [Tooltip("Max score margin before rubber banding kicks in")]
+        public float RubberBandThreshold = 0.2f;
+
+        [Header("History")]
+        [Range(5, 50)]
+        [Tooltip("Number of recent matches to consider")]
+        public int HistorySize = 20;
+
+        [Range(0.5f, 0.95f)]
+        [Tooltip("Weight decay for older matches")]
+        public float HistoryDecay = 0.9f;
+    }
+
+    /// <summary>
+    /// Event args for difficulty changes
+    /// </summary>
+    public class DifficultyChangedEventArgs : EventArgs
+    {
+        public float OldDifficulty { get; }
+        public float NewDifficulty { get; }
+        public string Reason { get; }
+        public PerformanceSnapshot Performance { get; }
+
+        public DifficultyChangedEventArgs(float old, float current, string reason, PerformanceSnapshot perf)
+        {
+            OldDifficulty = old;
+            NewDifficulty = current;
+            Reason = reason;
+            Performance = perf;
+        }
+    }
+
+    /// <summary>
+    /// Adaptive Difficulty System - Adjusts NPC skill based on player performance
+    /// </summary>
+    public class AdaptiveDifficultySystem : MonoBehaviour
+    {
+        private static AdaptiveDifficultySystem _instance;
+        public static AdaptiveDifficultySystem Instance => _instance;
+
+        [Header("Configuration")]
+        [SerializeField] private AdaptiveDifficultyConfig _config;
+        [SerializeField] private bool _persistData = true;
+        [SerializeField] private string _saveKey = "deskillz_adaptive_difficulty";
+
+        [Header("Debug")]
+        [SerializeField] private bool _logAdjustments = false;
+
+        // Current state
+        private float _currentDifficulty;
+        private readonly List<MatchResult> _matchHistory = new List<MatchResult>();
+        private PerformanceSnapshot _currentPerformance;
+        private int _currentStreak;
+        private bool _isWinStreak;
+
+        // Per-game difficulty
+        private readonly Dictionary<string, float> _gameDifficulties = new Dictionary<string, float>();
+
+        // Events
+        public event EventHandler<DifficultyChangedEventArgs> OnDifficultyChanged;
+        public event Action<MatchResult> OnMatchRecorded;
+
+        // Properties
+        public float CurrentDifficulty => _currentDifficulty;
+        public AdaptiveDifficultyConfig Config => _config;
+        public PerformanceSnapshot Performance => _currentPerformance;
+        public int CurrentStreak => _currentStreak;
+        public bool IsWinStreak => _isWinStreak;
+        public int MatchesPlayed => _matchHistory.Count;
+
+        private void Awake()
+        {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            if (_config == null)
+                _config = new AdaptiveDifficultyConfig();
+
+            _currentPerformance = new PerformanceSnapshot();
+
+            if (_persistData)
+                LoadData();
+            else
+                _currentDifficulty = _config.InitialDifficulty;
+        }
+
+        private void OnDestroy()
+        {
+            if (_instance == this)
+            {
+                if (_persistData)
+                    SaveData();
+                _instance = null;
+            }
+        }
+
+        #region Match Recording
+
+        /// <summary>
+        /// Record a match result and adjust difficulty
+        /// </summary>
+        public void RecordMatch(int playerScore, int opponentScore, string gameId = null)
+        {
+            var result = new MatchResult(playerScore, opponentScore, _currentDifficulty, gameId);
+            RecordMatch(result);
+        }
+
+        /// <summary>
+        /// Record a match result
+        /// </summary>
+        public void RecordMatch(MatchResult result)
+        {
+            _matchHistory.Add(result);
+
+            // Trim history
+            while (_matchHistory.Count > _config.HistorySize)
+                _matchHistory.RemoveAt(0);
+
+            // Update streak
+            UpdateStreak(result.PlayerWon);
+
+            // Update performance
+            UpdatePerformance();
+
+            // Adjust difficulty
+            AdjustDifficulty(result);
+
+            OnMatchRecorded?.Invoke(result);
+
+            if (_persistData)
+                SaveData();
+
+            if (_logAdjustments)
+                Debug.Log($"[Adaptive] Match recorded: Player {result.PlayerScore} vs {result.OpponentScore}, " +
+                         $"Difficulty: {_currentDifficulty:F3}, WinRate: {_currentPerformance.WinRate:P0}");
+        }
+
+        private void UpdateStreak(bool playerWon)
+        {
+            if (playerWon == _isWinStreak)
+            {
+                _currentStreak++;
+            }
+            else
+            {
+                _currentStreak = 1;
+                _isWinStreak = playerWon;
+            }
+        }
+
+        private void UpdatePerformance()
+        {
+            _currentPerformance.Timestamp = Time.time;
+            _currentPerformance.MatchesPlayed = _matchHistory.Count;
+
+            if (_matchHistory.Count == 0)
+                return;
+
+            // Calculate weighted stats
+            float totalWeight = 0f;
+            float weightedWins = 0f;
+            float weightedScore = 0f;
+            float weightedMargin = 0f;
+            List<float> scores = new List<float>();
+            int wins = 0;
+            int losses = 0;
+
+            for (int i = 0; i < _matchHistory.Count; i++)
+            {
+                var match = _matchHistory[i];
+                float weight = Mathf.Pow(_config.HistoryDecay, _matchHistory.Count - 1 - i);
+                totalWeight += weight;
+
+                if (match.PlayerWon)
+                {
+                    weightedWins += weight;
+                    wins++;
+                }
+                else
+                {
+                    losses++;
+                }
+
+                weightedScore += match.PlayerScore * weight;
+                weightedMargin += match.ScoreMargin * weight;
+                scores.Add(match.PlayerScore);
+            }
+
+            _currentPerformance.WinRate = totalWeight > 0 ? weightedWins / totalWeight : 0.5f;
+            _currentPerformance.AverageScore = totalWeight > 0 ? weightedScore / totalWeight : 0f;
+            _currentPerformance.AverageMargin = totalWeight > 0 ? weightedMargin / totalWeight : 0f;
+            _currentPerformance.Wins = wins;
+            _currentPerformance.Losses = losses;
+
+            // Calculate variance
+            float mean = 0f;
+            foreach (var s in scores) mean += s;
+            mean /= scores.Count;
+
+            float variance = 0f;
+            foreach (var s in scores)
+                variance += (s - mean) * (s - mean);
+            variance /= scores.Count;
+            _currentPerformance.ScoreVariance = Mathf.Sqrt(variance);
+
+            // Calculate recent trend (last 5 matches vs previous 5)
+            if (_matchHistory.Count >= 10)
+            {
+                float recentWins = 0f;
+                float olderWins = 0f;
+
+                for (int i = _matchHistory.Count - 5; i < _matchHistory.Count; i++)
+                    if (_matchHistory[i].PlayerWon) recentWins++;
+
+                for (int i = _matchHistory.Count - 10; i < _matchHistory.Count - 5; i++)
+                    if (_matchHistory[i].PlayerWon) olderWins++;
+
+                _currentPerformance.RecentTrend = (recentWins - olderWins) / 5f;
+            }
+        }
+
+        #endregion
+
+        #region Difficulty Adjustment
+
+        private void AdjustDifficulty(MatchResult result)
+        {
+            float oldDifficulty = _currentDifficulty;
+            string reason = "";
+
+            // Calculate target adjustment
+            float winRateDiff = _currentPerformance.WinRate - _config.TargetWinRate;
+            float adjustment = 0f;
+
+            // Only adjust if outside tolerance
+            if (Mathf.Abs(winRateDiff) > _config.WinRateTolerance)
+            {
+                // Player winning too much = increase difficulty
+                // Player losing too much = decrease difficulty
+                adjustment = winRateDiff * _config.AdjustmentSpeed;
+                reason = winRateDiff > 0 ? "Win rate too high" : "Win rate too low";
+            }
+
+            // Apply streak multiplier
+            if (_currentStreak >= _config.StreakThreshold)
+            {
+                float streakMod = 1f + (_currentStreak - _config.StreakThreshold) * 0.1f;
+                streakMod = Mathf.Min(streakMod, _config.StreakMultiplier);
+
+                if (_isWinStreak)
+                {
+                    adjustment = Mathf.Max(adjustment, _config.AdjustmentSpeed * streakMod);
+                    reason = $"Win streak ({_currentStreak})";
+                }
+                else
+                {
+                    adjustment = Mathf.Min(adjustment, -_config.AdjustmentSpeed * streakMod);
+                    reason = $"Lose streak ({_currentStreak})";
+                }
+            }
+
+            // Apply adjustment
+            _currentDifficulty = Mathf.Clamp(
+                _currentDifficulty + adjustment,
+                _config.MinDifficulty,
+                _config.MaxDifficulty
+            );
+
+            // Track per-game difficulty
+            if (!string.IsNullOrEmpty(result.GameId))
+            {
+                _gameDifficulties[result.GameId] = _currentDifficulty;
+            }
+
+            // Fire event if changed significantly
+            if (Mathf.Abs(_currentDifficulty - oldDifficulty) > 0.001f)
+            {
+                OnDifficultyChanged?.Invoke(this, new DifficultyChangedEventArgs(
+                    oldDifficulty,
+                    _currentDifficulty,
+                    reason,
+                    _currentPerformance.Clone()
+                ));
+            }
+        }
+
+        #endregion
+
+        #region Rubber Banding
+
+        /// <summary>
+        /// Get real-time difficulty adjustment for rubber banding
+        /// </summary>
+        public float GetRubberBandedDifficulty(float playerProgress, float opponentProgress)
+        {
+            if (!_config.EnableRubberBanding)
+                return _currentDifficulty;
+
+            float margin = playerProgress - opponentProgress;
+            float absMargin = Mathf.Abs(margin);
+
+            if (absMargin <= _config.RubberBandThreshold)
+                return _currentDifficulty;
+
+            float adjustment = (absMargin - _config.RubberBandThreshold) * _config.RubberBandStrength;
+
+            // Player ahead = increase difficulty, player behind = decrease
+            if (margin > 0)
+            {
+                return Mathf.Min(_config.MaxDifficulty, _currentDifficulty + adjustment);
+            }
+            else
+            {
+                return Mathf.Max(_config.MinDifficulty, _currentDifficulty - adjustment);
+            }
+        }
+
+        /// <summary>
+        /// Get NPC config with rubber banding applied
+        /// </summary>
+        public NPCConfig GetRubberBandedConfig(float playerProgress, float opponentProgress)
+        {
+            float difficulty = GetRubberBandedDifficulty(playerProgress, opponentProgress);
+            return CreateConfigFromDifficulty(difficulty);
+        }
+
+        #endregion
+
+        #region NPC Config Generation
+
+        /// <summary>
+        /// Get current NPC config based on difficulty
+        /// </summary>
+        public NPCConfig GetCurrentConfig()
+        {
+            return CreateConfigFromDifficulty(_currentDifficulty);
+        }
+
+        /// <summary>
+        /// Get NPC config for specific game
+        /// </summary>
+        public NPCConfig GetConfigForGame(string gameId)
+        {
+            float difficulty = _gameDifficulties.TryGetValue(gameId, out float d) ? d : _currentDifficulty;
+            return CreateConfigFromDifficulty(difficulty);
+        }
+
+        /// <summary>
+        /// Create NPC config from difficulty value
+        /// </summary>
+        public NPCConfig CreateConfigFromDifficulty(float difficulty)
+        {
+            difficulty = Mathf.Clamp01(difficulty);
+
+            // Map difficulty to NPC parameters
+            var config = new NPCConfig
+            {
+                Difficulty = NPCDifficulty.Adaptive,
+                ReactionSpeed = Mathf.Lerp(0.2f, 0.95f, difficulty),
+                Accuracy = Mathf.Lerp(0.3f, 0.95f, difficulty),
+                DecisionQuality = Mathf.Lerp(0.2f, 0.9f, difficulty),
+                Consistency = Mathf.Lerp(0.4f, 0.9f, difficulty),
+                Adaptability = 1f,
+                MistakeChance = Mathf.Lerp(0.3f, 0.02f, difficulty),
+                MinThinkTime = Mathf.Lerp(0.8f, 0.05f, difficulty),
+                MaxThinkTime = Mathf.Lerp(2.5f, 0.4f, difficulty),
+                SimulateHumanBehavior = difficulty < 0.9f
+            };
+
+            // Personality based on difficulty
+            if (difficulty < 0.3f)
+            {
+                config.Personality = NPCPersonality.Defensive;
+                config.Aggression = 0.3f;
+                config.RiskTolerance = 0.2f;
+            }
+            else if (difficulty < 0.6f)
+            {
+                config.Personality = NPCPersonality.Balanced;
+                config.Aggression = 0.5f;
+                config.RiskTolerance = 0.5f;
+            }
+            else if (difficulty < 0.8f)
+            {
+                config.Personality = NPCPersonality.Tactical;
+                config.Aggression = 0.6f;
+                config.RiskTolerance = 0.6f;
+            }
+            else
+            {
+                config.Personality = NPCPersonality.Aggressive;
+                config.Aggression = 0.8f;
+                config.RiskTolerance = 0.7f;
+            }
+
+            return config;
+        }
+
+        /// <summary>
+        /// Apply current difficulty to an NPC controller
+        /// </summary>
+        public void ApplyToNPC(NPCController npc, string gameId = null)
+        {
+            if (npc == null)
+                return;
+
+            var config = string.IsNullOrEmpty(gameId) 
+                ? GetCurrentConfig() 
+                : GetConfigForGame(gameId);
+
+            npc.Initialize(config);
+        }
+
+        #endregion
+
+        #region Difficulty Queries
+
+        /// <summary>
+        /// Get difficulty as enum
+        /// </summary>
+        public NPCDifficulty GetDifficultyLevel()
+        {
+            if (_currentDifficulty < 0.15f) return NPCDifficulty.Tutorial;
+            if (_currentDifficulty < 0.3f) return NPCDifficulty.Easy;
+            if (_currentDifficulty < 0.5f) return NPCDifficulty.Medium;
+            if (_currentDifficulty < 0.7f) return NPCDifficulty.Hard;
+            if (_currentDifficulty < 0.85f) return NPCDifficulty.Expert;
+            return NPCDifficulty.Master;
+        }
+
+        /// <summary>
+        /// Get difficulty as percentage string
+        /// </summary>
+        public string GetDifficultyString()
+        {
+            return $"{_currentDifficulty:P0}";
+        }
+
+        /// <summary>
+        /// Get difficulty description
+        /// </summary>
+        public string GetDifficultyDescription()
+        {
+            var level = GetDifficultyLevel();
+            switch (level)
+            {
+                case NPCDifficulty.Tutorial:
+                    return "Learning the ropes - opponents are very forgiving";
+                case NPCDifficulty.Easy:
+                    return "Casual play - opponents make mistakes";
+                case NPCDifficulty.Medium:
+                    return "Fair challenge - balanced competition";
+                case NPCDifficulty.Hard:
+                    return "Skilled opponents - expect a real fight";
+                case NPCDifficulty.Expert:
+                    return "Elite competition - near-perfect play";
+                case NPCDifficulty.Master:
+                    return "Ultimate challenge - superhuman precision";
+                default:
+                    return "Adapting to your skill level";
+            }
+        }
+
+        /// <summary>
+        /// Predict outcome based on current difficulty
+        /// </summary>
+        public float PredictWinChance()
+        {
+            // Based on historical performance at current difficulty
+            int winsAtSimilar = 0;
+            int totalAtSimilar = 0;
+
+            foreach (var match in _matchHistory)
+            {
+                if (Mathf.Abs(match.DifficultyLevel - _currentDifficulty) < 0.1f)
+                {
+                    totalAtSimilar++;
+                    if (match.PlayerWon) winsAtSimilar++;
+                }
+            }
+
+            if (totalAtSimilar >= 3)
+                return (float)winsAtSimilar / totalAtSimilar;
+
+            // Default estimate based on target
+            return _config.TargetWinRate;
+        }
+
+        #endregion
+
+        #region Manual Controls
+
+        /// <summary>
+        /// Manually set difficulty
+        /// </summary>
+        public void SetDifficulty(float difficulty)
+        {
+            float oldDifficulty = _currentDifficulty;
+            _currentDifficulty = Mathf.Clamp(difficulty, _config.MinDifficulty, _config.MaxDifficulty);
+
+            if (Mathf.Abs(_currentDifficulty - oldDifficulty) > 0.001f)
+            {
+                OnDifficultyChanged?.Invoke(this, new DifficultyChangedEventArgs(
+                    oldDifficulty,
+                    _currentDifficulty,
+                    "Manual adjustment",
+                    _currentPerformance
+                ));
+            }
+
+            if (_persistData)
+                SaveData();
+        }
+
+        /// <summary>
+        /// Set difficulty from enum
+        /// </summary>
+        public void SetDifficulty(NPCDifficulty level)
+        {
+            float difficulty = level switch
+            {
+                NPCDifficulty.Tutorial => 0.1f,
+                NPCDifficulty.Easy => 0.25f,
+                NPCDifficulty.Medium => 0.45f,
+                NPCDifficulty.Hard => 0.65f,
+                NPCDifficulty.Expert => 0.8f,
+                NPCDifficulty.Master => 0.95f,
+                _ => _config.InitialDifficulty
+            };
+
+            SetDifficulty(difficulty);
+        }
+
+        /// <summary>
+        /// Reset to initial difficulty
+        /// </summary>
+        public void ResetDifficulty()
+        {
+            _matchHistory.Clear();
+            _currentStreak = 0;
+            _currentPerformance = new PerformanceSnapshot();
+            SetDifficulty(_config.InitialDifficulty);
+        }
+
+        /// <summary>
+        /// Clear history but keep current difficulty
+        /// </summary>
+        public void ClearHistory()
+        {
+            _matchHistory.Clear();
+            _currentStreak = 0;
+            _currentPerformance = new PerformanceSnapshot();
+
+            if (_persistData)
+                SaveData();
+        }
+
+        #endregion
+
+        #region Persistence
+
+        private void SaveData()
+        {
+            var data = new AdaptiveDifficultyData
+            {
+                CurrentDifficulty = _currentDifficulty,
+                MatchHistory = new List<MatchResult>(_matchHistory),
+                GameDifficulties = new List<GameDifficultyEntry>()
+            };
+
+            foreach (var kvp in _gameDifficulties)
+            {
+                data.GameDifficulties.Add(new GameDifficultyEntry
+                {
+                    GameId = kvp.Key,
+                    Difficulty = kvp.Value
+                });
+            }
+
+            string json = JsonUtility.ToJson(data);
+            PlayerPrefs.SetString(_saveKey, json);
+            PlayerPrefs.Save();
+        }
+
+        private void LoadData()
+        {
+            string json = PlayerPrefs.GetString(_saveKey, "");
+
+            if (string.IsNullOrEmpty(json))
+            {
+                _currentDifficulty = _config.InitialDifficulty;
+                return;
+            }
+
+            try
+            {
+                var data = JsonUtility.FromJson<AdaptiveDifficultyData>(json);
+                _currentDifficulty = data.CurrentDifficulty;
+                _matchHistory.Clear();
+                _matchHistory.AddRange(data.MatchHistory);
+
+                _gameDifficulties.Clear();
+                foreach (var entry in data.GameDifficulties)
+                {
+                    _gameDifficulties[entry.GameId] = entry.Difficulty;
+                }
+
+                UpdatePerformance();
+
+                Debug.Log($"[Adaptive] Loaded data: Difficulty={_currentDifficulty:F3}, Matches={_matchHistory.Count}");
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Adaptive] Failed to load data: {e.Message}");
+                _currentDifficulty = _config.InitialDifficulty;
+            }
+        }
+
+        [Serializable]
+        private class AdaptiveDifficultyData
+        {
+            public float CurrentDifficulty;
+            public List<MatchResult> MatchHistory;
+            public List<GameDifficultyEntry> GameDifficulties;
+        }
+
+        [Serializable]
+        private class GameDifficultyEntry
+        {
+            public string GameId;
+            public float Difficulty;
+        }
+
+        #endregion
+
+        #region Debug
+
+        private void OnGUI()
+        {
+            if (!_logAdjustments)
+                return;
+
+            GUILayout.BeginArea(new Rect(10, 10, 300, 200));
+            GUILayout.BeginVertical("box");
+
+            GUILayout.Label($"Adaptive Difficulty System");
+            GUILayout.Label($"Difficulty: {_currentDifficulty:P0} ({GetDifficultyLevel()})");
+            GUILayout.Label($"Win Rate: {_currentPerformance.WinRate:P0} (Target: {_config.TargetWinRate:P0})");
+            GUILayout.Label($"Matches: {_matchHistory.Count}");
+            GUILayout.Label($"Streak: {(_isWinStreak ? "W" : "L")}{_currentStreak}");
+            GUILayout.Label($"Trend: {(_currentPerformance.RecentTrend > 0 ? "+" : "")}{_currentPerformance.RecentTrend:F2}");
+
+            GUILayout.EndVertical();
+            GUILayout.EndArea();
+        }
+
+        #endregion
+    }
+}

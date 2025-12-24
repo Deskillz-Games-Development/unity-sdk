@@ -1,0 +1,752 @@
+// ============================================================================
+// Deskillz SDK - Crash Reporter
+// Exception handling, crash logs, and stack trace reporting
+// ============================================================================
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Text;
+using UnityEngine;
+using UnityEngine.Networking;
+
+namespace Deskillz.SDK.Analytics
+{
+    /// <summary>
+    /// Severity levels for crashes/errors
+    /// </summary>
+    public enum CrashSeverity
+    {
+        Info = 0,
+        Warning = 1,
+        Error = 2,
+        Exception = 3,
+        Fatal = 4
+    }
+
+    /// <summary>
+    /// Crash report data
+    /// </summary>
+    [Serializable]
+    public class CrashReport
+    {
+        public string ReportId;
+        public string SessionId;
+        public string UserId;
+        public long Timestamp;
+        public CrashSeverity Severity;
+        public string ErrorType;
+        public string Message;
+        public string StackTrace;
+        public string Scene;
+        public Dictionary<string, string> Context;
+        public DeviceInfo DeviceInfo;
+        public List<string> Breadcrumbs;
+        public Dictionary<string, object> CustomData;
+
+        public CrashReport()
+        {
+            ReportId = Guid.NewGuid().ToString("N");
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            Context = new Dictionary<string, string>();
+            Breadcrumbs = new List<string>();
+            CustomData = new Dictionary<string, object>();
+        }
+
+        public CrashReport(string message, string stackTrace, CrashSeverity severity) : this()
+        {
+            Message = message;
+            StackTrace = stackTrace;
+            Severity = severity;
+            ErrorType = ExtractErrorType(message, stackTrace);
+        }
+
+        private string ExtractErrorType(string message, string stackTrace)
+        {
+            // Try to extract exception type from message or stack trace
+            if (!string.IsNullOrEmpty(message))
+            {
+                int colonIndex = message.IndexOf(':');
+                if (colonIndex > 0 && colonIndex < 50)
+                {
+                    return message.Substring(0, colonIndex).Trim();
+                }
+            }
+
+            if (!string.IsNullOrEmpty(stackTrace))
+            {
+                string[] lines = stackTrace.Split('\n');
+                if (lines.Length > 0)
+                {
+                    string firstLine = lines[0].Trim();
+                    int parenIndex = firstLine.IndexOf('(');
+                    if (parenIndex > 0)
+                    {
+                        return firstLine.Substring(0, parenIndex).Trim();
+                    }
+                }
+            }
+
+            return "UnknownError";
+        }
+    }
+
+    /// <summary>
+    /// Crash reporter configuration
+    /// </summary>
+    [Serializable]
+    public class CrashReporterConfig
+    {
+        [Header("Endpoint")]
+        public string CrashEndpoint = "https://api.deskillz.games/crashes/v1";
+        public string ApiKey = "";
+
+        [Header("Capture")]
+        public bool CaptureErrors = true;
+        public bool CaptureExceptions = true;
+        public bool CaptureWarnings = false;
+        public bool CaptureAsserts = true;
+
+        [Header("Breadcrumbs")]
+        public bool EnableBreadcrumbs = true;
+        public int MaxBreadcrumbs = 50;
+
+        [Header("Stack Traces")]
+        public int MaxStackTraceLength = 5000;
+        public bool IncludeDeviceInfo = true;
+        public bool IncludeSceneInfo = true;
+
+        [Header("Filtering")]
+        public List<string> IgnorePatterns = new List<string>();
+        public int MaxReportsPerSession = 100;
+        public float MinTimeBetweenReports = 1f;
+
+        [Header("Offline")]
+        public bool SaveCrashesOffline = true;
+        public int MaxOfflineCrashes = 20;
+    }
+
+    /// <summary>
+    /// Breadcrumb for tracking user actions before crash
+    /// </summary>
+    [Serializable]
+    public class Breadcrumb
+    {
+        public string Message;
+        public string Category;
+        public long Timestamp;
+        public Dictionary<string, string> Data;
+
+        public Breadcrumb(string message, string category = "default")
+        {
+            Message = message;
+            Category = category;
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            Data = new Dictionary<string, string>();
+        }
+
+        public override string ToString()
+        {
+            return $"[{Category}] {Message}";
+        }
+    }
+
+    /// <summary>
+    /// Crash Reporter - Captures and reports crashes and exceptions
+    /// </summary>
+    public class CrashReporter : MonoBehaviour
+    {
+        private static CrashReporter _instance;
+        public static CrashReporter Instance => _instance;
+
+        [Header("Configuration")]
+        [SerializeField] private CrashReporterConfig _config;
+
+        // State
+        private string _sessionId;
+        private string _userId;
+        private string _currentScene;
+        private int _reportsThisSession;
+        private float _lastReportTime;
+
+        // Breadcrumbs
+        private readonly Queue<Breadcrumb> _breadcrumbs = new Queue<Breadcrumb>();
+        private readonly object _breadcrumbLock = new object();
+
+        // Context
+        private readonly Dictionary<string, string> _globalContext = new Dictionary<string, string>();
+
+        // Offline storage
+        private readonly List<CrashReport> _offlineReports = new List<CrashReport>();
+
+        // Deduplication
+        private readonly HashSet<string> _reportedErrors = new HashSet<string>();
+        private readonly Dictionary<string, int> _errorCounts = new Dictionary<string, int>();
+
+        // Device info (cached)
+        private DeviceInfo _deviceInfo;
+
+        // Events
+        public event Action<CrashReport> OnCrashCaptured;
+        public event Action<CrashReport> OnCrashReported;
+        public event Action<string> OnReportError;
+
+        // Properties
+        public CrashReporterConfig Config => _config;
+        public int ReportsThisSession => _reportsThisSession;
+
+        #region Unity Lifecycle
+
+        private void Awake()
+        {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            if (_config == null)
+                _config = new CrashReporterConfig();
+
+            Initialize();
+        }
+
+        private void Start()
+        {
+            // Cache device info
+            if (TelemetryCollector.Instance != null)
+                _deviceInfo = TelemetryCollector.Instance.GetDeviceInfo();
+            else
+                _deviceInfo = CaptureDeviceInfo();
+
+            // Load offline reports
+            if (_config.SaveCrashesOffline)
+                LoadOfflineReports();
+        }
+
+        private void OnEnable()
+        {
+            Application.logMessageReceived += HandleLog;
+            AppDomain.CurrentDomain.UnhandledException += HandleUnhandledException;
+        }
+
+        private void OnDisable()
+        {
+            Application.logMessageReceived -= HandleLog;
+            AppDomain.CurrentDomain.UnhandledException -= HandleUnhandledException;
+        }
+
+        private void OnDestroy()
+        {
+            if (_instance == this)
+            {
+                SaveOfflineReports();
+                _instance = null;
+            }
+        }
+
+        private void OnApplicationQuit()
+        {
+            SaveOfflineReports();
+        }
+
+        #endregion
+
+        #region Initialization
+
+        private void Initialize()
+        {
+            _sessionId = Guid.NewGuid().ToString("N");
+            _currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded += (scene, mode) =>
+            {
+                _currentScene = scene.name;
+                LeaveBreadcrumb($"Scene loaded: {scene.name}", "navigation");
+            };
+
+            // Default context
+            SetContext("app_version", Application.version);
+            SetContext("unity_version", Application.unityVersion);
+            SetContext("platform", Application.platform.ToString());
+        }
+
+        /// <summary>
+        /// Set session ID
+        /// </summary>
+        public void SetSessionId(string sessionId)
+        {
+            _sessionId = sessionId;
+        }
+
+        /// <summary>
+        /// Set user ID
+        /// </summary>
+        public void SetUserId(string userId)
+        {
+            _userId = userId;
+            SetContext("user_id", userId);
+        }
+
+        #endregion
+
+        #region Log Handling
+
+        private void HandleLog(string message, string stackTrace, LogType type)
+        {
+            // Check if we should capture this type
+            switch (type)
+            {
+                case LogType.Error:
+                    if (!_config.CaptureErrors) return;
+                    break;
+                case LogType.Exception:
+                    if (!_config.CaptureExceptions) return;
+                    break;
+                case LogType.Warning:
+                    if (!_config.CaptureWarnings) return;
+                    break;
+                case LogType.Assert:
+                    if (!_config.CaptureAsserts) return;
+                    break;
+                default:
+                    return;
+            }
+
+            // Check ignore patterns
+            foreach (var pattern in _config.IgnorePatterns)
+            {
+                if (message.Contains(pattern) || stackTrace.Contains(pattern))
+                    return;
+            }
+
+            // Rate limiting
+            if (Time.realtimeSinceStartup - _lastReportTime < _config.MinTimeBetweenReports)
+                return;
+
+            if (_reportsThisSession >= _config.MaxReportsPerSession)
+                return;
+
+            // Deduplication
+            string errorKey = GetErrorKey(message, stackTrace);
+            if (_reportedErrors.Contains(errorKey))
+            {
+                // Count duplicates but don't report
+                if (_errorCounts.ContainsKey(errorKey))
+                    _errorCounts[errorKey]++;
+                else
+                    _errorCounts[errorKey] = 2;
+                return;
+            }
+
+            _reportedErrors.Add(errorKey);
+
+            // Capture and report
+            CrashSeverity severity = LogTypeToSeverity(type);
+            CaptureAndReport(message, stackTrace, severity);
+        }
+
+        private void HandleUnhandledException(object sender, UnhandledExceptionEventArgs args)
+        {
+            if (args.ExceptionObject is Exception ex)
+            {
+                CaptureAndReport(ex.Message, ex.StackTrace, CrashSeverity.Fatal);
+            }
+        }
+
+        private CrashSeverity LogTypeToSeverity(LogType type)
+        {
+            return type switch
+            {
+                LogType.Warning => CrashSeverity.Warning,
+                LogType.Error => CrashSeverity.Error,
+                LogType.Exception => CrashSeverity.Exception,
+                LogType.Assert => CrashSeverity.Error,
+                _ => CrashSeverity.Info
+            };
+        }
+
+        private string GetErrorKey(string message, string stackTrace)
+        {
+            // Create a unique key based on error message and first stack frame
+            string key = message;
+
+            if (!string.IsNullOrEmpty(stackTrace))
+            {
+                string[] lines = stackTrace.Split('\n');
+                if (lines.Length > 0)
+                {
+                    key += "|" + lines[0].Trim();
+                }
+            }
+
+            return key.GetHashCode().ToString();
+        }
+
+        #endregion
+
+        #region Capture & Report
+
+        private void CaptureAndReport(string message, string stackTrace, CrashSeverity severity)
+        {
+            var report = new CrashReport(message, stackTrace, severity)
+            {
+                SessionId = _sessionId,
+                UserId = _userId,
+                Scene = _currentScene
+            };
+
+            // Truncate stack trace if needed
+            if (!string.IsNullOrEmpty(stackTrace) && stackTrace.Length > _config.MaxStackTraceLength)
+            {
+                report.StackTrace = stackTrace.Substring(0, _config.MaxStackTraceLength) + "\n... (truncated)";
+            }
+
+            // Add context
+            foreach (var kvp in _globalContext)
+            {
+                report.Context[kvp.Key] = kvp.Value;
+            }
+
+            // Add device info
+            if (_config.IncludeDeviceInfo)
+            {
+                report.DeviceInfo = _deviceInfo;
+            }
+
+            // Add breadcrumbs
+            if (_config.EnableBreadcrumbs)
+            {
+                lock (_breadcrumbLock)
+                {
+                    foreach (var crumb in _breadcrumbs)
+                    {
+                        report.Breadcrumbs.Add(crumb.ToString());
+                    }
+                }
+            }
+
+            _reportsThisSession++;
+            _lastReportTime = Time.realtimeSinceStartup;
+
+            OnCrashCaptured?.Invoke(report);
+
+            // Send report
+            StartCoroutine(SendReport(report));
+
+            // Also track as analytics event
+            AnalyticsManager.Instance?.TrackError(message, report.ErrorType, 
+                stackTrace?.Length > 500 ? stackTrace.Substring(0, 500) : stackTrace);
+        }
+
+        /// <summary>
+        /// Manually report an exception
+        /// </summary>
+        public void ReportException(Exception exception, Dictionary<string, object> customData = null)
+        {
+            if (exception == null)
+                return;
+
+            var report = new CrashReport(exception.Message, exception.StackTrace, CrashSeverity.Exception)
+            {
+                SessionId = _sessionId,
+                UserId = _userId,
+                Scene = _currentScene,
+                ErrorType = exception.GetType().Name
+            };
+
+            if (customData != null)
+            {
+                report.CustomData = customData;
+            }
+
+            foreach (var kvp in _globalContext)
+            {
+                report.Context[kvp.Key] = kvp.Value;
+            }
+
+            if (_config.IncludeDeviceInfo)
+            {
+                report.DeviceInfo = _deviceInfo;
+            }
+
+            if (_config.EnableBreadcrumbs)
+            {
+                lock (_breadcrumbLock)
+                {
+                    foreach (var crumb in _breadcrumbs)
+                    {
+                        report.Breadcrumbs.Add(crumb.ToString());
+                    }
+                }
+            }
+
+            OnCrashCaptured?.Invoke(report);
+            StartCoroutine(SendReport(report));
+        }
+
+        /// <summary>
+        /// Manually report an error message
+        /// </summary>
+        public void ReportError(string message, CrashSeverity severity = CrashSeverity.Error, 
+                               Dictionary<string, object> customData = null)
+        {
+            var report = new CrashReport
+            {
+                SessionId = _sessionId,
+                UserId = _userId,
+                Scene = _currentScene,
+                Message = message,
+                Severity = severity,
+                ErrorType = "ManualReport"
+            };
+
+            if (customData != null)
+            {
+                report.CustomData = customData;
+            }
+
+            foreach (var kvp in _globalContext)
+            {
+                report.Context[kvp.Key] = kvp.Value;
+            }
+
+            OnCrashCaptured?.Invoke(report);
+            StartCoroutine(SendReport(report));
+        }
+
+        private IEnumerator SendReport(CrashReport report)
+        {
+            string json = JsonUtility.ToJson(report);
+            byte[] bodyRaw = Encoding.UTF8.GetBytes(json);
+
+            using (var request = new UnityWebRequest(_config.CrashEndpoint + "/report", "POST"))
+            {
+                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+                request.SetRequestHeader("X-API-Key", _config.ApiKey);
+
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    OnCrashReported?.Invoke(report);
+                    Debug.Log($"[CrashReporter] Report sent: {report.ReportId}");
+                }
+                else
+                {
+                    // Save for later
+                    if (_config.SaveCrashesOffline)
+                    {
+                        SaveReportOffline(report);
+                    }
+
+                    OnReportError?.Invoke(request.error);
+                    Debug.LogWarning($"[CrashReporter] Failed to send report: {request.error}");
+                }
+            }
+        }
+
+        #endregion
+
+        #region Breadcrumbs
+
+        /// <summary>
+        /// Leave a breadcrumb for crash context
+        /// </summary>
+        public void LeaveBreadcrumb(string message, string category = "default")
+        {
+            if (!_config.EnableBreadcrumbs)
+                return;
+
+            var crumb = new Breadcrumb(message, category);
+
+            lock (_breadcrumbLock)
+            {
+                _breadcrumbs.Enqueue(crumb);
+
+                while (_breadcrumbs.Count > _config.MaxBreadcrumbs)
+                {
+                    _breadcrumbs.Dequeue();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Leave a breadcrumb with data
+        /// </summary>
+        public void LeaveBreadcrumb(string message, string category, Dictionary<string, string> data)
+        {
+            if (!_config.EnableBreadcrumbs)
+                return;
+
+            var crumb = new Breadcrumb(message, category);
+            if (data != null)
+            {
+                foreach (var kvp in data)
+                    crumb.Data[kvp.Key] = kvp.Value;
+            }
+
+            lock (_breadcrumbLock)
+            {
+                _breadcrumbs.Enqueue(crumb);
+
+                while (_breadcrumbs.Count > _config.MaxBreadcrumbs)
+                {
+                    _breadcrumbs.Dequeue();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Clear all breadcrumbs
+        /// </summary>
+        public void ClearBreadcrumbs()
+        {
+            lock (_breadcrumbLock)
+            {
+                _breadcrumbs.Clear();
+            }
+        }
+
+        #endregion
+
+        #region Context
+
+        /// <summary>
+        /// Set global context that will be included in all reports
+        /// </summary>
+        public void SetContext(string key, string value)
+        {
+            _globalContext[key] = value;
+        }
+
+        /// <summary>
+        /// Remove context
+        /// </summary>
+        public void RemoveContext(string key)
+        {
+            _globalContext.Remove(key);
+        }
+
+        /// <summary>
+        /// Clear all context
+        /// </summary>
+        public void ClearContext()
+        {
+            _globalContext.Clear();
+        }
+
+        #endregion
+
+        #region Offline Storage
+
+        private void SaveReportOffline(CrashReport report)
+        {
+            _offlineReports.Add(report);
+
+            while (_offlineReports.Count > _config.MaxOfflineCrashes)
+            {
+                _offlineReports.RemoveAt(0);
+            }
+
+            SaveOfflineReports();
+        }
+
+        private void SaveOfflineReports()
+        {
+            if (_offlineReports.Count == 0)
+                return;
+
+            try
+            {
+                var data = new OfflineCrashData { Reports = _offlineReports };
+                string json = JsonUtility.ToJson(data);
+                PlayerPrefs.SetString("deskillz_crash_offline", json);
+                PlayerPrefs.Save();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[CrashReporter] Failed to save offline: {e.Message}");
+            }
+        }
+
+        private void LoadOfflineReports()
+        {
+            try
+            {
+                string json = PlayerPrefs.GetString("deskillz_crash_offline", "");
+                if (!string.IsNullOrEmpty(json))
+                {
+                    var data = JsonUtility.FromJson<OfflineCrashData>(json);
+                    PlayerPrefs.DeleteKey("deskillz_crash_offline");
+
+                    // Try to send offline reports
+                    foreach (var report in data.Reports)
+                    {
+                        StartCoroutine(SendReport(report));
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[CrashReporter] Failed to load offline: {e.Message}");
+            }
+        }
+
+        [Serializable]
+        private class OfflineCrashData
+        {
+            public List<CrashReport> Reports = new List<CrashReport>();
+        }
+
+        #endregion
+
+        #region Device Info
+
+        private DeviceInfo CaptureDeviceInfo()
+        {
+            return new DeviceInfo
+            {
+                DeviceModel = SystemInfo.deviceModel,
+                DeviceName = SystemInfo.deviceName,
+                DeviceType = SystemInfo.deviceType.ToString(),
+                OperatingSystem = SystemInfo.operatingSystem,
+                ProcessorType = SystemInfo.processorType,
+                ProcessorCount = SystemInfo.processorCount,
+                SystemMemoryMB = SystemInfo.systemMemorySize,
+                GraphicsDeviceName = SystemInfo.graphicsDeviceName,
+                GraphicsMemoryMB = SystemInfo.graphicsMemorySize,
+                ScreenWidth = Screen.width,
+                ScreenHeight = Screen.height
+            };
+        }
+
+        #endregion
+
+        #region Error Counts
+
+        /// <summary>
+        /// Get count of a specific error
+        /// </summary>
+        public int GetErrorCount(string message)
+        {
+            string key = message.GetHashCode().ToString();
+            return _errorCounts.TryGetValue(key, out int count) ? count : 0;
+        }
+
+        /// <summary>
+        /// Get all error counts
+        /// </summary>
+        public Dictionary<string, int> GetAllErrorCounts()
+        {
+            return new Dictionary<string, int>(_errorCounts);
+        }
+
+        #endregion
+    }
+}

@@ -1,0 +1,1028 @@
+// ============================================================================
+// Deskillz SDK - Analytics Manager
+// Core analytics system with event tracking, batching, and offline support
+// ============================================================================
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Text;
+using UnityEngine;
+using UnityEngine.Networking;
+
+namespace Deskillz.SDK.Analytics
+{
+    /// <summary>
+    /// Event priority levels
+    /// </summary>
+    public enum EventPriority
+    {
+        Low = 0,        // Can be dropped if queue is full
+        Normal = 1,     // Standard events
+        High = 2,       // Important events
+        Critical = 3    // Must be sent (transactions, scores)
+    }
+
+    /// <summary>
+    /// Event categories
+    /// </summary>
+    public static class EventCategory
+    {
+        public const string Session = "session";
+        public const string Game = "game";
+        public const string Tournament = "tournament";
+        public const string Match = "match";
+        public const string Economy = "economy";
+        public const string Social = "social";
+        public const string UI = "ui";
+        public const string Error = "error";
+        public const string Performance = "performance";
+        public const string Custom = "custom";
+    }
+
+    /// <summary>
+    /// Standard event names
+    /// </summary>
+    public static class EventName
+    {
+        // Session events
+        public const string SessionStart = "session_start";
+        public const string SessionEnd = "session_end";
+        public const string SessionResume = "session_resume";
+        public const string SessionPause = "session_pause";
+
+        // Game events
+        public const string GameLaunch = "game_launch";
+        public const string GameExit = "game_exit";
+        public const string LevelStart = "level_start";
+        public const string LevelComplete = "level_complete";
+        public const string LevelFail = "level_fail";
+
+        // Tournament events
+        public const string TournamentView = "tournament_view";
+        public const string TournamentJoin = "tournament_join";
+        public const string TournamentLeave = "tournament_leave";
+        public const string TournamentComplete = "tournament_complete";
+
+        // Match events
+        public const string MatchStart = "match_start";
+        public const string MatchEnd = "match_end";
+        public const string MatchAbort = "match_abort";
+        public const string ScoreSubmit = "score_submit";
+
+        // Economy events
+        public const string WalletConnect = "wallet_connect";
+        public const string WalletDisconnect = "wallet_disconnect";
+        public const string EntryFeePaid = "entry_fee_paid";
+        public const string PrizeReceived = "prize_received";
+        public const string Deposit = "deposit";
+        public const string Withdrawal = "withdrawal";
+
+        // UI events
+        public const string ScreenView = "screen_view";
+        public const string ButtonClick = "button_click";
+        public const string MenuOpen = "menu_open";
+        public const string MenuClose = "menu_close";
+
+        // Error events
+        public const string Error = "error";
+        public const string Exception = "exception";
+        public const string NetworkError = "network_error";
+    }
+
+    /// <summary>
+    /// Analytics event data
+    /// </summary>
+    [Serializable]
+    public class AnalyticsEvent
+    {
+        public string EventId;
+        public string EventName;
+        public string Category;
+        public long Timestamp;
+        public EventPriority Priority;
+        public Dictionary<string, object> Parameters;
+        public string SessionId;
+        public string UserId;
+        public int RetryCount;
+
+        public AnalyticsEvent()
+        {
+            EventId = Guid.NewGuid().ToString("N").Substring(0, 16);
+            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            Parameters = new Dictionary<string, object>();
+            Priority = EventPriority.Normal;
+        }
+
+        public AnalyticsEvent(string name, string category = EventCategory.Custom) : this()
+        {
+            EventName = name;
+            Category = category;
+        }
+
+        public AnalyticsEvent SetParameter(string key, object value)
+        {
+            Parameters[key] = value;
+            return this;
+        }
+
+        public AnalyticsEvent SetPriority(EventPriority priority)
+        {
+            Priority = priority;
+            return this;
+        }
+    }
+
+    /// <summary>
+    /// Analytics configuration
+    /// </summary>
+    [Serializable]
+    public class AnalyticsConfig
+    {
+        [Header("Endpoint")]
+        public string AnalyticsEndpoint = "https://api.deskillz.games/analytics/v1";
+        public string ApiKey = "";
+
+        [Header("Batching")]
+        public int MaxBatchSize = 50;
+        public float FlushInterval = 30f;
+        public int MaxQueueSize = 1000;
+        public int MaxRetries = 3;
+
+        [Header("Offline Support")]
+        public bool EnableOfflineStorage = true;
+        public int MaxOfflineEvents = 5000;
+        public float OfflineFlushDelay = 5f;
+
+        [Header("Privacy")]
+        public bool CollectDeviceInfo = true;
+        public bool CollectLocation = false;
+        public bool AnonymizeIP = true;
+
+        [Header("Debug")]
+        public bool DebugMode = false;
+        public bool LogEvents = false;
+    }
+
+    /// <summary>
+    /// Device and context information
+    /// </summary>
+    [Serializable]
+    public class AnalyticsContext
+    {
+        public string DeviceId;
+        public string Platform;
+        public string OSVersion;
+        public string DeviceModel;
+        public string DeviceType;
+        public string AppVersion;
+        public string SDKVersion;
+        public string Language;
+        public string Country;
+        public int ScreenWidth;
+        public int ScreenHeight;
+        public float ScreenDPI;
+        public string Timezone;
+        public bool IsTablet;
+
+        public static AnalyticsContext Capture()
+        {
+            return new AnalyticsContext
+            {
+                DeviceId = SystemInfo.deviceUniqueIdentifier,
+                Platform = Application.platform.ToString(),
+                OSVersion = SystemInfo.operatingSystem,
+                DeviceModel = SystemInfo.deviceModel,
+                DeviceType = SystemInfo.deviceType.ToString(),
+                AppVersion = Application.version,
+                SDKVersion = "1.0.0",
+                Language = Application.systemLanguage.ToString(),
+                Country = "", // Would need IP geolocation
+                ScreenWidth = Screen.width,
+                ScreenHeight = Screen.height,
+                ScreenDPI = Screen.dpi,
+                Timezone = TimeZoneInfo.Local.Id,
+                IsTablet = IsDeviceTablet()
+            };
+        }
+
+        private static bool IsDeviceTablet()
+        {
+            float screenWidth = Screen.width / Screen.dpi;
+            float screenHeight = Screen.height / Screen.dpi;
+            float diagonalInches = Mathf.Sqrt(screenWidth * screenWidth + screenHeight * screenHeight);
+            return diagonalInches >= 6.5f;
+        }
+    }
+
+    /// <summary>
+    /// Batch of events for sending
+    /// </summary>
+    [Serializable]
+    public class EventBatch
+    {
+        public string BatchId;
+        public long CreatedAt;
+        public AnalyticsContext Context;
+        public List<AnalyticsEvent> Events;
+
+        public EventBatch()
+        {
+            BatchId = Guid.NewGuid().ToString("N").Substring(0, 12);
+            CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            Events = new List<AnalyticsEvent>();
+        }
+    }
+
+    /// <summary>
+    /// Analytics Manager - Central analytics system
+    /// </summary>
+    public class AnalyticsManager : MonoBehaviour
+    {
+        private static AnalyticsManager _instance;
+        public static AnalyticsManager Instance => _instance;
+
+        [Header("Configuration")]
+        [SerializeField] private AnalyticsConfig _config;
+
+        // Session
+        private string _sessionId;
+        private string _userId;
+        private DateTime _sessionStartTime;
+        private AnalyticsContext _context;
+
+        // Event queue
+        private readonly Queue<AnalyticsEvent> _eventQueue = new Queue<AnalyticsEvent>();
+        private readonly List<AnalyticsEvent> _pendingBatch = new List<AnalyticsEvent>();
+        private readonly object _queueLock = new object();
+
+        // Offline storage
+        private readonly List<AnalyticsEvent> _offlineEvents = new List<AnalyticsEvent>();
+        private bool _isOnline = true;
+
+        // Timing
+        private float _lastFlushTime;
+        private Coroutine _flushCoroutine;
+        private bool _isFlushing;
+
+        // Stats
+        private int _totalEventsSent;
+        private int _totalEventsDropped;
+        private int _totalBatchesSent;
+
+        // Events
+        public event Action<AnalyticsEvent> OnEventTracked;
+        public event Action<int> OnBatchSent;
+        public event Action<string> OnError;
+
+        // Properties
+        public string SessionId => _sessionId;
+        public string UserId => _userId;
+        public bool IsOnline => _isOnline;
+        public int QueuedEvents => _eventQueue.Count;
+        public int OfflineEvents => _offlineEvents.Count;
+        public AnalyticsConfig Config => _config;
+
+        #region Unity Lifecycle
+
+        private void Awake()
+        {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            if (_config == null)
+                _config = new AnalyticsConfig();
+
+            Initialize();
+        }
+
+        private void Start()
+        {
+            // Start flush coroutine
+            _flushCoroutine = StartCoroutine(FlushLoop());
+
+            // Track session start
+            TrackSessionStart();
+        }
+
+        private void OnApplicationPause(bool paused)
+        {
+            if (paused)
+            {
+                Track(EventName.SessionPause, EventCategory.Session);
+                FlushImmediate();
+            }
+            else
+            {
+                Track(EventName.SessionResume, EventCategory.Session);
+            }
+        }
+
+        private void OnApplicationQuit()
+        {
+            TrackSessionEnd();
+            FlushImmediate();
+            SaveOfflineEvents();
+        }
+
+        private void OnDestroy()
+        {
+            if (_instance == this)
+            {
+                if (_flushCoroutine != null)
+                    StopCoroutine(_flushCoroutine);
+
+                SaveOfflineEvents();
+                _instance = null;
+            }
+        }
+
+        #endregion
+
+        #region Initialization
+
+        private void Initialize()
+        {
+            // Generate session ID
+            _sessionId = Guid.NewGuid().ToString("N");
+            _sessionStartTime = DateTime.UtcNow;
+
+            // Capture device context
+            _context = AnalyticsContext.Capture();
+
+            // Load offline events
+            if (_config.EnableOfflineStorage)
+                LoadOfflineEvents();
+
+            // Check network status
+            StartCoroutine(CheckNetworkStatus());
+
+            if (_config.DebugMode)
+                Debug.Log($"[Analytics] Initialized. Session: {_sessionId}");
+        }
+
+        /// <summary>
+        /// Set user ID for tracking
+        /// </summary>
+        public void SetUserId(string userId)
+        {
+            _userId = userId;
+
+            if (_config.DebugMode)
+                Debug.Log($"[Analytics] User ID set: {userId}");
+        }
+
+        /// <summary>
+        /// Set custom endpoint
+        /// </summary>
+        public void SetEndpoint(string endpoint)
+        {
+            _config.AnalyticsEndpoint = endpoint;
+        }
+
+        /// <summary>
+        /// Set API key
+        /// </summary>
+        public void SetApiKey(string apiKey)
+        {
+            _config.ApiKey = apiKey;
+        }
+
+        #endregion
+
+        #region Event Tracking
+
+        /// <summary>
+        /// Track an event
+        /// </summary>
+        public void Track(string eventName, string category = EventCategory.Custom, 
+                         Dictionary<string, object> parameters = null, 
+                         EventPriority priority = EventPriority.Normal)
+        {
+            var evt = new AnalyticsEvent(eventName, category)
+            {
+                SessionId = _sessionId,
+                UserId = _userId,
+                Priority = priority
+            };
+
+            if (parameters != null)
+            {
+                foreach (var kvp in parameters)
+                    evt.Parameters[kvp.Key] = kvp.Value;
+            }
+
+            EnqueueEvent(evt);
+        }
+
+        /// <summary>
+        /// Track an event with builder
+        /// </summary>
+        public void Track(AnalyticsEvent evt)
+        {
+            evt.SessionId = _sessionId;
+            evt.UserId = _userId;
+            EnqueueEvent(evt);
+        }
+
+        /// <summary>
+        /// Track screen view
+        /// </summary>
+        public void TrackScreenView(string screenName, Dictionary<string, object> extras = null)
+        {
+            var parameters = extras ?? new Dictionary<string, object>();
+            parameters["screen_name"] = screenName;
+            Track(EventName.ScreenView, EventCategory.UI, parameters);
+        }
+
+        /// <summary>
+        /// Track button click
+        /// </summary>
+        public void TrackButtonClick(string buttonName, string screenName = null)
+        {
+            var parameters = new Dictionary<string, object>
+            {
+                ["button_name"] = buttonName
+            };
+            if (!string.IsNullOrEmpty(screenName))
+                parameters["screen_name"] = screenName;
+
+            Track(EventName.ButtonClick, EventCategory.UI, parameters);
+        }
+
+        /// <summary>
+        /// Track error
+        /// </summary>
+        public void TrackError(string errorMessage, string errorType = null, string stackTrace = null)
+        {
+            var parameters = new Dictionary<string, object>
+            {
+                ["error_message"] = errorMessage
+            };
+
+            if (!string.IsNullOrEmpty(errorType))
+                parameters["error_type"] = errorType;
+
+            if (!string.IsNullOrEmpty(stackTrace))
+                parameters["stack_trace"] = stackTrace.Length > 1000 
+                    ? stackTrace.Substring(0, 1000) 
+                    : stackTrace;
+
+            Track(EventName.Error, EventCategory.Error, parameters, EventPriority.High);
+        }
+
+        /// <summary>
+        /// Track match start
+        /// </summary>
+        public void TrackMatchStart(string matchId, string tournamentId, string gameId)
+        {
+            Track(EventName.MatchStart, EventCategory.Match, new Dictionary<string, object>
+            {
+                ["match_id"] = matchId,
+                ["tournament_id"] = tournamentId,
+                ["game_id"] = gameId
+            }, EventPriority.High);
+        }
+
+        /// <summary>
+        /// Track match end
+        /// </summary>
+        public void TrackMatchEnd(string matchId, int score, bool won, float duration)
+        {
+            Track(EventName.MatchEnd, EventCategory.Match, new Dictionary<string, object>
+            {
+                ["match_id"] = matchId,
+                ["score"] = score,
+                ["won"] = won,
+                ["duration_seconds"] = duration
+            }, EventPriority.High);
+        }
+
+        /// <summary>
+        /// Track score submission
+        /// </summary>
+        public void TrackScoreSubmit(string matchId, int score, bool verified)
+        {
+            Track(EventName.ScoreSubmit, EventCategory.Match, new Dictionary<string, object>
+            {
+                ["match_id"] = matchId,
+                ["score"] = score,
+                ["verified"] = verified
+            }, EventPriority.Critical);
+        }
+
+        /// <summary>
+        /// Track economy event
+        /// </summary>
+        public void TrackEconomyEvent(string eventName, string currency, decimal amount, 
+                                      string transactionId = null)
+        {
+            var parameters = new Dictionary<string, object>
+            {
+                ["currency"] = currency,
+                ["amount"] = amount
+            };
+
+            if (!string.IsNullOrEmpty(transactionId))
+                parameters["transaction_id"] = transactionId;
+
+            Track(eventName, EventCategory.Economy, parameters, EventPriority.Critical);
+        }
+
+        private void TrackSessionStart()
+        {
+            Track(EventName.SessionStart, EventCategory.Session, new Dictionary<string, object>
+            {
+                ["platform"] = _context.Platform,
+                ["os_version"] = _context.OSVersion,
+                ["device_model"] = _context.DeviceModel,
+                ["app_version"] = _context.AppVersion,
+                ["sdk_version"] = _context.SDKVersion
+            }, EventPriority.High);
+        }
+
+        private void TrackSessionEnd()
+        {
+            float sessionDuration = (float)(DateTime.UtcNow - _sessionStartTime).TotalSeconds;
+
+            Track(EventName.SessionEnd, EventCategory.Session, new Dictionary<string, object>
+            {
+                ["duration_seconds"] = sessionDuration,
+                ["events_tracked"] = _totalEventsSent
+            }, EventPriority.High);
+        }
+
+        #endregion
+
+        #region Queue Management
+
+        private void EnqueueEvent(AnalyticsEvent evt)
+        {
+            lock (_queueLock)
+            {
+                // Check queue size
+                if (_eventQueue.Count >= _config.MaxQueueSize)
+                {
+                    // Drop low priority events
+                    if (evt.Priority == EventPriority.Low)
+                    {
+                        _totalEventsDropped++;
+                        return;
+                    }
+
+                    // Remove oldest low priority event
+                    var tempQueue = new Queue<AnalyticsEvent>();
+                    bool dropped = false;
+
+                    while (_eventQueue.Count > 0)
+                    {
+                        var existing = _eventQueue.Dequeue();
+                        if (!dropped && existing.Priority == EventPriority.Low)
+                        {
+                            dropped = true;
+                            _totalEventsDropped++;
+                        }
+                        else
+                        {
+                            tempQueue.Enqueue(existing);
+                        }
+                    }
+
+                    while (tempQueue.Count > 0)
+                        _eventQueue.Enqueue(tempQueue.Dequeue());
+                }
+
+                _eventQueue.Enqueue(evt);
+            }
+
+            OnEventTracked?.Invoke(evt);
+
+            if (_config.LogEvents)
+                Debug.Log($"[Analytics] Event: {evt.EventName} ({evt.Category})");
+
+            // Immediate flush for critical events
+            if (evt.Priority == EventPriority.Critical && _isOnline)
+            {
+                FlushImmediate();
+            }
+        }
+
+        #endregion
+
+        #region Flushing
+
+        private IEnumerator FlushLoop()
+        {
+            while (true)
+            {
+                yield return new WaitForSeconds(_config.FlushInterval);
+
+                if (_eventQueue.Count > 0 || _offlineEvents.Count > 0)
+                {
+                    yield return Flush();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Flush events immediately
+        /// </summary>
+        public void FlushImmediate()
+        {
+            if (!_isFlushing)
+            {
+                StartCoroutine(Flush());
+            }
+        }
+
+        private IEnumerator Flush()
+        {
+            if (_isFlushing)
+                yield break;
+
+            _isFlushing = true;
+
+            // Try to send offline events first if online
+            if (_isOnline && _offlineEvents.Count > 0)
+            {
+                yield return SendOfflineEvents();
+            }
+
+            // Prepare batch
+            _pendingBatch.Clear();
+
+            lock (_queueLock)
+            {
+                int count = 0;
+                while (_eventQueue.Count > 0 && count < _config.MaxBatchSize)
+                {
+                    _pendingBatch.Add(_eventQueue.Dequeue());
+                    count++;
+                }
+            }
+
+            if (_pendingBatch.Count > 0)
+            {
+                if (_isOnline)
+                {
+                    yield return SendBatch(_pendingBatch);
+                }
+                else
+                {
+                    // Store for later
+                    StoreOffline(_pendingBatch);
+                }
+            }
+
+            _isFlushing = false;
+            _lastFlushTime = Time.time;
+        }
+
+        private IEnumerator SendBatch(List<AnalyticsEvent> events)
+        {
+            var batch = new EventBatch
+            {
+                Context = _context,
+                Events = events
+            };
+
+            string json = JsonUtility.ToJson(batch);
+            byte[] bodyRaw = Encoding.UTF8.GetBytes(json);
+
+            using (var request = new UnityWebRequest(_config.AnalyticsEndpoint + "/events", "POST"))
+            {
+                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+                request.SetRequestHeader("X-API-Key", _config.ApiKey);
+                request.SetRequestHeader("X-Session-Id", _sessionId);
+
+                if (!string.IsNullOrEmpty(_userId))
+                    request.SetRequestHeader("X-User-Id", _userId);
+
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    _totalEventsSent += events.Count;
+                    _totalBatchesSent++;
+                    OnBatchSent?.Invoke(events.Count);
+
+                    if (_config.DebugMode)
+                        Debug.Log($"[Analytics] Sent {events.Count} events");
+                }
+                else
+                {
+                    // Store failed events offline
+                    StoreOffline(events);
+                    OnError?.Invoke(request.error);
+
+                    if (_config.DebugMode)
+                        Debug.LogWarning($"[Analytics] Failed to send: {request.error}");
+                }
+            }
+        }
+
+        #endregion
+
+        #region Offline Storage
+
+        private void StoreOffline(List<AnalyticsEvent> events)
+        {
+            if (!_config.EnableOfflineStorage)
+                return;
+
+            foreach (var evt in events)
+            {
+                if (_offlineEvents.Count >= _config.MaxOfflineEvents)
+                {
+                    // Remove oldest low priority
+                    int removeIndex = _offlineEvents.FindIndex(e => e.Priority == EventPriority.Low);
+                    if (removeIndex >= 0)
+                    {
+                        _offlineEvents.RemoveAt(removeIndex);
+                        _totalEventsDropped++;
+                    }
+                    else if (evt.Priority > EventPriority.Low)
+                    {
+                        _offlineEvents.RemoveAt(0);
+                        _totalEventsDropped++;
+                    }
+                    else
+                    {
+                        _totalEventsDropped++;
+                        continue;
+                    }
+                }
+
+                _offlineEvents.Add(evt);
+            }
+
+            if (_config.DebugMode)
+                Debug.Log($"[Analytics] Stored {events.Count} events offline");
+        }
+
+        private IEnumerator SendOfflineEvents()
+        {
+            if (_offlineEvents.Count == 0)
+                yield break;
+
+            var eventsToSend = new List<AnalyticsEvent>();
+            int count = Mathf.Min(_offlineEvents.Count, _config.MaxBatchSize);
+
+            for (int i = 0; i < count; i++)
+            {
+                var evt = _offlineEvents[i];
+                evt.RetryCount++;
+
+                if (evt.RetryCount <= _config.MaxRetries)
+                {
+                    eventsToSend.Add(evt);
+                }
+            }
+
+            if (eventsToSend.Count > 0)
+            {
+                var batch = new EventBatch
+                {
+                    Context = _context,
+                    Events = eventsToSend
+                };
+
+                string json = JsonUtility.ToJson(batch);
+                byte[] bodyRaw = Encoding.UTF8.GetBytes(json);
+
+                using (var request = new UnityWebRequest(_config.AnalyticsEndpoint + "/events", "POST"))
+                {
+                    request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                    request.downloadHandler = new DownloadHandlerBuffer();
+                    request.SetRequestHeader("Content-Type", "application/json");
+                    request.SetRequestHeader("X-API-Key", _config.ApiKey);
+
+                    yield return request.SendWebRequest();
+
+                    if (request.result == UnityWebRequest.Result.Success)
+                    {
+                        // Remove sent events
+                        foreach (var evt in eventsToSend)
+                            _offlineEvents.Remove(evt);
+
+                        _totalEventsSent += eventsToSend.Count;
+
+                        if (_config.DebugMode)
+                            Debug.Log($"[Analytics] Sent {eventsToSend.Count} offline events");
+                    }
+                }
+            }
+
+            // Remove events that exceeded retry limit
+            _offlineEvents.RemoveAll(e => e.RetryCount > _config.MaxRetries);
+        }
+
+        private void SaveOfflineEvents()
+        {
+            if (!_config.EnableOfflineStorage || _offlineEvents.Count == 0)
+                return;
+
+            try
+            {
+                var data = new OfflineEventData { Events = _offlineEvents };
+                string json = JsonUtility.ToJson(data);
+                PlayerPrefs.SetString("deskillz_analytics_offline", json);
+                PlayerPrefs.Save();
+
+                if (_config.DebugMode)
+                    Debug.Log($"[Analytics] Saved {_offlineEvents.Count} offline events");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[Analytics] Failed to save offline events: {e.Message}");
+            }
+        }
+
+        private void LoadOfflineEvents()
+        {
+            try
+            {
+                string json = PlayerPrefs.GetString("deskillz_analytics_offline", "");
+                if (!string.IsNullOrEmpty(json))
+                {
+                    var data = JsonUtility.FromJson<OfflineEventData>(json);
+                    _offlineEvents.AddRange(data.Events);
+                    PlayerPrefs.DeleteKey("deskillz_analytics_offline");
+
+                    if (_config.DebugMode)
+                        Debug.Log($"[Analytics] Loaded {_offlineEvents.Count} offline events");
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[Analytics] Failed to load offline events: {e.Message}");
+            }
+        }
+
+        [Serializable]
+        private class OfflineEventData
+        {
+            public List<AnalyticsEvent> Events = new List<AnalyticsEvent>();
+        }
+
+        #endregion
+
+        #region Network Status
+
+        private IEnumerator CheckNetworkStatus()
+        {
+            while (true)
+            {
+                bool wasOnline = _isOnline;
+                _isOnline = Application.internetReachability != NetworkReachability.NotReachable;
+
+                // Came back online
+                if (!wasOnline && _isOnline && _offlineEvents.Count > 0)
+                {
+                    yield return new WaitForSeconds(_config.OfflineFlushDelay);
+                    FlushImmediate();
+                }
+
+                yield return new WaitForSeconds(5f);
+            }
+        }
+
+        #endregion
+
+        #region User Properties
+
+        private readonly Dictionary<string, object> _userProperties = new Dictionary<string, object>();
+
+        /// <summary>
+        /// Set a user property
+        /// </summary>
+        public void SetUserProperty(string key, object value)
+        {
+            _userProperties[key] = value;
+
+            // Send user property update
+            Track("user_property_set", EventCategory.Custom, new Dictionary<string, object>
+            {
+                ["property_name"] = key,
+                ["property_value"] = value
+            });
+        }
+
+        /// <summary>
+        /// Increment a user property
+        /// </summary>
+        public void IncrementUserProperty(string key, int amount = 1)
+        {
+            if (_userProperties.TryGetValue(key, out object current) && current is int currentInt)
+            {
+                _userProperties[key] = currentInt + amount;
+            }
+            else
+            {
+                _userProperties[key] = amount;
+            }
+        }
+
+        /// <summary>
+        /// Get user properties
+        /// </summary>
+        public Dictionary<string, object> GetUserProperties()
+        {
+            return new Dictionary<string, object>(_userProperties);
+        }
+
+        #endregion
+
+        #region Statistics
+
+        /// <summary>
+        /// Get analytics statistics
+        /// </summary>
+        public AnalyticsStats GetStats()
+        {
+            return new AnalyticsStats
+            {
+                SessionId = _sessionId,
+                SessionDuration = (float)(DateTime.UtcNow - _sessionStartTime).TotalSeconds,
+                TotalEventsSent = _totalEventsSent,
+                TotalEventsDropped = _totalEventsDropped,
+                TotalBatchesSent = _totalBatchesSent,
+                QueuedEvents = _eventQueue.Count,
+                OfflineEvents = _offlineEvents.Count,
+                IsOnline = _isOnline
+            };
+        }
+
+        #endregion
+    }
+
+    /// <summary>
+    /// Analytics statistics
+    /// </summary>
+    [Serializable]
+    public class AnalyticsStats
+    {
+        public string SessionId;
+        public float SessionDuration;
+        public int TotalEventsSent;
+        public int TotalEventsDropped;
+        public int TotalBatchesSent;
+        public int QueuedEvents;
+        public int OfflineEvents;
+        public bool IsOnline;
+    }
+
+    #region Event Builder
+
+    /// <summary>
+    /// Fluent event builder
+    /// </summary>
+    public class EventBuilder
+    {
+        private readonly AnalyticsEvent _event;
+
+        public EventBuilder(string eventName, string category = EventCategory.Custom)
+        {
+            _event = new AnalyticsEvent(eventName, category);
+        }
+
+        public EventBuilder SetParameter(string key, object value)
+        {
+            _event.Parameters[key] = value;
+            return this;
+        }
+
+        public EventBuilder SetPriority(EventPriority priority)
+        {
+            _event.Priority = priority;
+            return this;
+        }
+
+        public EventBuilder AddParameters(Dictionary<string, object> parameters)
+        {
+            foreach (var kvp in parameters)
+                _event.Parameters[kvp.Key] = kvp.Value;
+            return this;
+        }
+
+        public AnalyticsEvent Build()
+        {
+            return _event;
+        }
+
+        public void Send()
+        {
+            AnalyticsManager.Instance?.Track(_event);
+        }
+    }
+
+    #endregion
+}

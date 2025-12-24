@@ -1,0 +1,827 @@
+// ============================================================================
+// Deskillz SDK - Player Analytics
+// Player behavior tracking, sessions, and engagement metrics
+// ============================================================================
+
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace Deskillz.SDK.Analytics
+{
+    /// <summary>
+    /// Player engagement level
+    /// </summary>
+    public enum EngagementLevel
+    {
+        New,            // First session
+        Returning,      // 2-5 sessions
+        Active,         // 6-20 sessions
+        Engaged,        // 21-50 sessions
+        Loyal,          // 51+ sessions
+        AtRisk,         // No activity in 7+ days
+        Churned         // No activity in 30+ days
+    }
+
+    /// <summary>
+    /// Player progression data
+    /// </summary>
+    [Serializable]
+    public class PlayerProgression
+    {
+        public int TotalMatches;
+        public int TotalWins;
+        public int TotalLosses;
+        public int HighestScore;
+        public int TotalScore;
+        public int CurrentStreak;
+        public int BestStreak;
+        public int TournamentsEntered;
+        public int TournamentsWon;
+        public float TotalPrizeWon;
+        public float TotalEntryFeesPaid;
+        public int GamesPlayed;
+        public Dictionary<string, int> GamesPlayCount;
+        public Dictionary<string, int> GamesHighScores;
+
+        public PlayerProgression()
+        {
+            GamesPlayCount = new Dictionary<string, int>();
+            GamesHighScores = new Dictionary<string, int>();
+        }
+
+        public float WinRate => TotalMatches > 0 ? (float)TotalWins / TotalMatches : 0f;
+        public float AverageScore => TotalMatches > 0 ? (float)TotalScore / TotalMatches : 0f;
+        public float NetEarnings => TotalPrizeWon - TotalEntryFeesPaid;
+    }
+
+    /// <summary>
+    /// Session data
+    /// </summary>
+    [Serializable]
+    public class SessionData
+    {
+        public string SessionId;
+        public DateTime StartTime;
+        public DateTime EndTime;
+        public float Duration;
+        public int MatchesPlayed;
+        public int ScreensViewed;
+        public int ButtonClicks;
+        public List<string> ScreenSequence;
+        public Dictionary<string, float> TimePerScreen;
+        public bool WasCompleted;
+
+        public SessionData()
+        {
+            SessionId = Guid.NewGuid().ToString("N");
+            StartTime = DateTime.UtcNow;
+            ScreenSequence = new List<string>();
+            TimePerScreen = new Dictionary<string, float>();
+        }
+    }
+
+    /// <summary>
+    /// Player profile data
+    /// </summary>
+    [Serializable]
+    public class PlayerProfile
+    {
+        public string PlayerId;
+        public string Username;
+        public DateTime FirstSeenAt;
+        public DateTime LastSeenAt;
+        public int TotalSessions;
+        public float TotalPlayTime;
+        public EngagementLevel EngagementLevel;
+        public PlayerProgression Progression;
+        public Dictionary<string, object> CustomAttributes;
+
+        public PlayerProfile()
+        {
+            FirstSeenAt = DateTime.UtcNow;
+            LastSeenAt = DateTime.UtcNow;
+            Progression = new PlayerProgression();
+            CustomAttributes = new Dictionary<string, object>();
+        }
+
+        public float AverageSessionLength => TotalSessions > 0 ? TotalPlayTime / TotalSessions : 0f;
+        public int DaysSinceFirstSeen => (int)(DateTime.UtcNow - FirstSeenAt).TotalDays;
+        public int DaysSinceLastSeen => (int)(DateTime.UtcNow - LastSeenAt).TotalDays;
+    }
+
+    /// <summary>
+    /// Funnel step
+    /// </summary>
+    [Serializable]
+    public class FunnelStep
+    {
+        public string Name;
+        public int Count;
+        public float ConversionRate;
+        public float AverageTimeToNext;
+    }
+
+    /// <summary>
+    /// Funnel definition
+    /// </summary>
+    [Serializable]
+    public class Funnel
+    {
+        public string FunnelId;
+        public string Name;
+        public List<string> Steps;
+        public Dictionary<string, int> StepCounts;
+        public Dictionary<string, float> StepTimes;
+
+        public Funnel(string name, params string[] steps)
+        {
+            FunnelId = Guid.NewGuid().ToString("N").Substring(0, 8);
+            Name = name;
+            Steps = new List<string>(steps);
+            StepCounts = new Dictionary<string, int>();
+            StepTimes = new Dictionary<string, float>();
+
+            foreach (var step in steps)
+            {
+                StepCounts[step] = 0;
+                StepTimes[step] = 0f;
+            }
+        }
+
+        public List<FunnelStep> GetStepAnalysis()
+        {
+            var result = new List<FunnelStep>();
+            int previousCount = 0;
+
+            for (int i = 0; i < Steps.Count; i++)
+            {
+                string step = Steps[i];
+                int count = StepCounts.TryGetValue(step, out int c) ? c : 0;
+                float time = StepTimes.TryGetValue(step, out float t) ? t : 0f;
+
+                float conversion = i == 0 ? 1f : (previousCount > 0 ? (float)count / previousCount : 0f);
+
+                result.Add(new FunnelStep
+                {
+                    Name = step,
+                    Count = count,
+                    ConversionRate = conversion,
+                    AverageTimeToNext = count > 0 ? time / count : 0f
+                });
+
+                previousCount = count;
+            }
+
+            return result;
+        }
+    }
+
+    /// <summary>
+    /// Player Analytics - Tracks player behavior and engagement
+    /// </summary>
+    public class PlayerAnalytics : MonoBehaviour
+    {
+        private static PlayerAnalytics _instance;
+        public static PlayerAnalytics Instance => _instance;
+
+        [Header("Settings")]
+        [SerializeField] private bool _persistData = true;
+        [SerializeField] private string _saveKeyPrefix = "deskillz_player_";
+        [SerializeField] private int _maxSessionHistory = 30;
+
+        // Current state
+        private PlayerProfile _currentProfile;
+        private SessionData _currentSession;
+        private string _currentScreen;
+        private float _screenEnterTime;
+
+        // History
+        private readonly List<SessionData> _sessionHistory = new List<SessionData>();
+
+        // Funnels
+        private readonly Dictionary<string, Funnel> _funnels = new Dictionary<string, Funnel>();
+        private readonly Dictionary<string, float> _funnelStepTimes = new Dictionary<string, float>();
+
+        // Events
+        public event Action<SessionData> OnSessionStarted;
+        public event Action<SessionData> OnSessionEnded;
+        public event Action<string, string> OnScreenChanged;
+        public event Action<EngagementLevel> OnEngagementLevelChanged;
+
+        // Properties
+        public PlayerProfile CurrentProfile => _currentProfile;
+        public SessionData CurrentSession => _currentSession;
+        public string CurrentScreen => _currentScreen;
+        public EngagementLevel Engagement => _currentProfile?.EngagementLevel ?? EngagementLevel.New;
+
+        #region Unity Lifecycle
+
+        private void Awake()
+        {
+            if (_instance != null && _instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            _instance = this;
+            DontDestroyOnLoad(gameObject);
+
+            Initialize();
+        }
+
+        private void Start()
+        {
+            StartSession();
+        }
+
+        private void OnApplicationPause(bool paused)
+        {
+            if (paused)
+            {
+                PauseSession();
+            }
+            else
+            {
+                ResumeSession();
+            }
+        }
+
+        private void OnApplicationQuit()
+        {
+            EndSession();
+        }
+
+        private void OnDestroy()
+        {
+            if (_instance == this)
+            {
+                EndSession();
+                _instance = null;
+            }
+        }
+
+        #endregion
+
+        #region Initialization
+
+        private void Initialize()
+        {
+            if (_persistData)
+            {
+                LoadProfile();
+                LoadSessionHistory();
+            }
+            else
+            {
+                _currentProfile = new PlayerProfile();
+            }
+        }
+
+        /// <summary>
+        /// Identify the player
+        /// </summary>
+        public void IdentifyPlayer(string playerId, string username = null)
+        {
+            bool isNewPlayer = string.IsNullOrEmpty(_currentProfile.PlayerId);
+
+            _currentProfile.PlayerId = playerId;
+
+            if (!string.IsNullOrEmpty(username))
+                _currentProfile.Username = username;
+
+            if (isNewPlayer)
+            {
+                _currentProfile.FirstSeenAt = DateTime.UtcNow;
+            }
+
+            _currentProfile.LastSeenAt = DateTime.UtcNow;
+
+            UpdateEngagementLevel();
+            SaveProfile();
+
+            // Track identification
+            AnalyticsManager.Instance?.Track("player_identified", EventCategory.Session, 
+                new Dictionary<string, object>
+                {
+                    ["player_id"] = playerId,
+                    ["is_new"] = isNewPlayer,
+                    ["engagement_level"] = _currentProfile.EngagementLevel.ToString()
+                });
+        }
+
+        /// <summary>
+        /// Set custom player attribute
+        /// </summary>
+        public void SetAttribute(string key, object value)
+        {
+            _currentProfile.CustomAttributes[key] = value;
+            SaveProfile();
+        }
+
+        #endregion
+
+        #region Session Management
+
+        private void StartSession()
+        {
+            _currentSession = new SessionData();
+            _currentProfile.TotalSessions++;
+            _currentProfile.LastSeenAt = DateTime.UtcNow;
+
+            UpdateEngagementLevel();
+
+            OnSessionStarted?.Invoke(_currentSession);
+
+            // Track session start
+            AnalyticsManager.Instance?.Track(EventName.SessionStart, EventCategory.Session, 
+                new Dictionary<string, object>
+                {
+                    ["session_number"] = _currentProfile.TotalSessions,
+                    ["engagement_level"] = _currentProfile.EngagementLevel.ToString(),
+                    ["days_since_last"] = _currentProfile.DaysSinceLastSeen
+                });
+        }
+
+        private void EndSession()
+        {
+            if (_currentSession == null)
+                return;
+
+            _currentSession.EndTime = DateTime.UtcNow;
+            _currentSession.Duration = (float)(_currentSession.EndTime - _currentSession.StartTime).TotalSeconds;
+            _currentSession.WasCompleted = true;
+
+            // Update screen time for current screen
+            if (!string.IsNullOrEmpty(_currentScreen))
+            {
+                float timeOnScreen = Time.realtimeSinceStartup - _screenEnterTime;
+                if (_currentSession.TimePerScreen.ContainsKey(_currentScreen))
+                    _currentSession.TimePerScreen[_currentScreen] += timeOnScreen;
+                else
+                    _currentSession.TimePerScreen[_currentScreen] = timeOnScreen;
+            }
+
+            // Update profile
+            _currentProfile.TotalPlayTime += _currentSession.Duration;
+
+            // Save to history
+            _sessionHistory.Add(_currentSession);
+            while (_sessionHistory.Count > _maxSessionHistory)
+                _sessionHistory.RemoveAt(0);
+
+            OnSessionEnded?.Invoke(_currentSession);
+
+            // Track session end
+            AnalyticsManager.Instance?.Track(EventName.SessionEnd, EventCategory.Session, 
+                new Dictionary<string, object>
+                {
+                    ["duration"] = _currentSession.Duration,
+                    ["matches_played"] = _currentSession.MatchesPlayed,
+                    ["screens_viewed"] = _currentSession.ScreensViewed
+                });
+
+            SaveProfile();
+            SaveSessionHistory();
+
+            _currentSession = null;
+        }
+
+        private void PauseSession()
+        {
+            if (_currentSession == null)
+                return;
+
+            // Calculate partial duration
+            float partialDuration = (float)(DateTime.UtcNow - _currentSession.StartTime).TotalSeconds;
+            _currentProfile.TotalPlayTime += partialDuration;
+
+            SaveProfile();
+        }
+
+        private void ResumeSession()
+        {
+            if (_currentSession != null)
+            {
+                // Continue existing session
+                _currentSession.StartTime = DateTime.UtcNow;
+            }
+            else
+            {
+                StartSession();
+            }
+        }
+
+        #endregion
+
+        #region Screen Tracking
+
+        /// <summary>
+        /// Track screen view
+        /// </summary>
+        public void TrackScreenView(string screenName)
+        {
+            string previousScreen = _currentScreen;
+
+            // Update time on previous screen
+            if (!string.IsNullOrEmpty(previousScreen) && _currentSession != null)
+            {
+                float timeOnScreen = Time.realtimeSinceStartup - _screenEnterTime;
+                if (_currentSession.TimePerScreen.ContainsKey(previousScreen))
+                    _currentSession.TimePerScreen[previousScreen] += timeOnScreen;
+                else
+                    _currentSession.TimePerScreen[previousScreen] = timeOnScreen;
+            }
+
+            _currentScreen = screenName;
+            _screenEnterTime = Time.realtimeSinceStartup;
+
+            if (_currentSession != null)
+            {
+                _currentSession.ScreensViewed++;
+                _currentSession.ScreenSequence.Add(screenName);
+            }
+
+            OnScreenChanged?.Invoke(previousScreen, screenName);
+
+            // Track funnel progress
+            foreach (var funnel in _funnels.Values)
+            {
+                TrackFunnelStep(funnel.FunnelId, screenName);
+            }
+
+            // Analytics
+            AnalyticsManager.Instance?.TrackScreenView(screenName, new Dictionary<string, object>
+            {
+                ["previous_screen"] = previousScreen ?? "",
+                ["time_on_previous"] = previousScreen != null ? Time.realtimeSinceStartup - _screenEnterTime : 0f
+            });
+        }
+
+        /// <summary>
+        /// Track button click
+        /// </summary>
+        public void TrackButtonClick(string buttonName)
+        {
+            if (_currentSession != null)
+            {
+                _currentSession.ButtonClicks++;
+            }
+
+            AnalyticsManager.Instance?.TrackButtonClick(buttonName, _currentScreen);
+        }
+
+        /// <summary>
+        /// Get time spent on a screen
+        /// </summary>
+        public float GetTimeOnScreen(string screenName)
+        {
+            if (_currentSession?.TimePerScreen != null && 
+                _currentSession.TimePerScreen.TryGetValue(screenName, out float time))
+            {
+                // Add current time if on this screen
+                if (_currentScreen == screenName)
+                {
+                    time += Time.realtimeSinceStartup - _screenEnterTime;
+                }
+                return time;
+            }
+            return 0f;
+        }
+
+        #endregion
+
+        #region Match Tracking
+
+        /// <summary>
+        /// Track match played
+        /// </summary>
+        public void TrackMatch(string gameId, int score, bool won)
+        {
+            var progression = _currentProfile.Progression;
+
+            progression.TotalMatches++;
+            progression.TotalScore += score;
+
+            if (won)
+            {
+                progression.TotalWins++;
+                progression.CurrentStreak++;
+                if (progression.CurrentStreak > progression.BestStreak)
+                    progression.BestStreak = progression.CurrentStreak;
+            }
+            else
+            {
+                progression.TotalLosses++;
+                progression.CurrentStreak = 0;
+            }
+
+            if (score > progression.HighestScore)
+                progression.HighestScore = score;
+
+            // Per-game stats
+            if (!string.IsNullOrEmpty(gameId))
+            {
+                if (progression.GamesPlayCount.ContainsKey(gameId))
+                    progression.GamesPlayCount[gameId]++;
+                else
+                    progression.GamesPlayCount[gameId] = 1;
+
+                if (!progression.GamesHighScores.ContainsKey(gameId) || 
+                    score > progression.GamesHighScores[gameId])
+                {
+                    progression.GamesHighScores[gameId] = score;
+                }
+            }
+
+            if (_currentSession != null)
+                _currentSession.MatchesPlayed++;
+
+            SaveProfile();
+        }
+
+        /// <summary>
+        /// Track tournament entry
+        /// </summary>
+        public void TrackTournamentEntry(string tournamentId, float entryFee, string currency)
+        {
+            _currentProfile.Progression.TournamentsEntered++;
+            _currentProfile.Progression.TotalEntryFeesPaid += entryFee;
+
+            SaveProfile();
+
+            AnalyticsManager.Instance?.TrackEconomyEvent(EventName.EntryFeePaid, currency, (decimal)entryFee, tournamentId);
+        }
+
+        /// <summary>
+        /// Track tournament win
+        /// </summary>
+        public void TrackTournamentWin(string tournamentId, float prizeAmount, string currency)
+        {
+            _currentProfile.Progression.TournamentsWon++;
+            _currentProfile.Progression.TotalPrizeWon += prizeAmount;
+
+            SaveProfile();
+
+            AnalyticsManager.Instance?.TrackEconomyEvent(EventName.PrizeReceived, currency, (decimal)prizeAmount, tournamentId);
+        }
+
+        #endregion
+
+        #region Engagement
+
+        private void UpdateEngagementLevel()
+        {
+            var previousLevel = _currentProfile.EngagementLevel;
+            int sessions = _currentProfile.TotalSessions;
+            int daysSinceLastSeen = _currentProfile.DaysSinceLastSeen;
+
+            // Check for churn first
+            if (daysSinceLastSeen >= 30)
+            {
+                _currentProfile.EngagementLevel = EngagementLevel.Churned;
+            }
+            else if (daysSinceLastSeen >= 7)
+            {
+                _currentProfile.EngagementLevel = EngagementLevel.AtRisk;
+            }
+            // Then check session count
+            else if (sessions <= 1)
+            {
+                _currentProfile.EngagementLevel = EngagementLevel.New;
+            }
+            else if (sessions <= 5)
+            {
+                _currentProfile.EngagementLevel = EngagementLevel.Returning;
+            }
+            else if (sessions <= 20)
+            {
+                _currentProfile.EngagementLevel = EngagementLevel.Active;
+            }
+            else if (sessions <= 50)
+            {
+                _currentProfile.EngagementLevel = EngagementLevel.Engaged;
+            }
+            else
+            {
+                _currentProfile.EngagementLevel = EngagementLevel.Loyal;
+            }
+
+            if (_currentProfile.EngagementLevel != previousLevel)
+            {
+                OnEngagementLevelChanged?.Invoke(_currentProfile.EngagementLevel);
+            }
+        }
+
+        /// <summary>
+        /// Get retention data
+        /// </summary>
+        public RetentionData GetRetentionData()
+        {
+            return new RetentionData
+            {
+                DaysSinceFirstSeen = _currentProfile.DaysSinceFirstSeen,
+                DaysSinceLastSeen = _currentProfile.DaysSinceLastSeen,
+                TotalSessions = _currentProfile.TotalSessions,
+                TotalPlayTime = _currentProfile.TotalPlayTime,
+                AverageSessionLength = _currentProfile.AverageSessionLength,
+                EngagementLevel = _currentProfile.EngagementLevel
+            };
+        }
+
+        #endregion
+
+        #region Funnels
+
+        /// <summary>
+        /// Create a funnel
+        /// </summary>
+        public Funnel CreateFunnel(string name, params string[] steps)
+        {
+            var funnel = new Funnel(name, steps);
+            _funnels[funnel.FunnelId] = funnel;
+            return funnel;
+        }
+
+        /// <summary>
+        /// Track funnel step
+        /// </summary>
+        public void TrackFunnelStep(string funnelId, string step)
+        {
+            if (!_funnels.TryGetValue(funnelId, out var funnel))
+                return;
+
+            if (!funnel.Steps.Contains(step))
+                return;
+
+            // Record step
+            funnel.StepCounts[step]++;
+
+            // Calculate time from previous step
+            string timeKey = $"{funnelId}_{step}";
+            if (_funnelStepTimes.TryGetValue(timeKey, out float previousTime))
+            {
+                float timeSincePrevious = Time.realtimeSinceStartup - previousTime;
+                funnel.StepTimes[step] += timeSincePrevious;
+            }
+
+            // Update time for next step
+            int stepIndex = funnel.Steps.IndexOf(step);
+            if (stepIndex < funnel.Steps.Count - 1)
+            {
+                string nextStep = funnel.Steps[stepIndex + 1];
+                string nextTimeKey = $"{funnelId}_{nextStep}";
+                _funnelStepTimes[nextTimeKey] = Time.realtimeSinceStartup;
+            }
+        }
+
+        /// <summary>
+        /// Get funnel analysis
+        /// </summary>
+        public List<FunnelStep> GetFunnelAnalysis(string funnelId)
+        {
+            if (_funnels.TryGetValue(funnelId, out var funnel))
+            {
+                return funnel.GetStepAnalysis();
+            }
+            return new List<FunnelStep>();
+        }
+
+        #endregion
+
+        #region Cohort Analysis
+
+        /// <summary>
+        /// Get player cohort
+        /// </summary>
+        public string GetCohort()
+        {
+            // Weekly cohort based on first seen date
+            DateTime firstSeen = _currentProfile.FirstSeenAt;
+            int year = firstSeen.Year;
+            int week = GetWeekOfYear(firstSeen);
+            return $"{year}-W{week:D2}";
+        }
+
+        private int GetWeekOfYear(DateTime date)
+        {
+            var calendar = System.Globalization.CultureInfo.CurrentCulture.Calendar;
+            return calendar.GetWeekOfYear(date, 
+                System.Globalization.CalendarWeekRule.FirstFourDayWeek, 
+                DayOfWeek.Monday);
+        }
+
+        #endregion
+
+        #region Persistence
+
+        private void SaveProfile()
+        {
+            if (!_persistData)
+                return;
+
+            try
+            {
+                string json = JsonUtility.ToJson(_currentProfile);
+                PlayerPrefs.SetString(_saveKeyPrefix + "profile", json);
+                PlayerPrefs.Save();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[PlayerAnalytics] Failed to save profile: {e.Message}");
+            }
+        }
+
+        private void LoadProfile()
+        {
+            try
+            {
+                string json = PlayerPrefs.GetString(_saveKeyPrefix + "profile", "");
+                if (!string.IsNullOrEmpty(json))
+                {
+                    _currentProfile = JsonUtility.FromJson<PlayerProfile>(json);
+                }
+                else
+                {
+                    _currentProfile = new PlayerProfile();
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[PlayerAnalytics] Failed to load profile: {e.Message}");
+                _currentProfile = new PlayerProfile();
+            }
+        }
+
+        private void SaveSessionHistory()
+        {
+            if (!_persistData)
+                return;
+
+            try
+            {
+                var data = new SessionHistoryData { Sessions = _sessionHistory };
+                string json = JsonUtility.ToJson(data);
+                PlayerPrefs.SetString(_saveKeyPrefix + "sessions", json);
+                PlayerPrefs.Save();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[PlayerAnalytics] Failed to save sessions: {e.Message}");
+            }
+        }
+
+        private void LoadSessionHistory()
+        {
+            try
+            {
+                string json = PlayerPrefs.GetString(_saveKeyPrefix + "sessions", "");
+                if (!string.IsNullOrEmpty(json))
+                {
+                    var data = JsonUtility.FromJson<SessionHistoryData>(json);
+                    _sessionHistory.AddRange(data.Sessions);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[PlayerAnalytics] Failed to load sessions: {e.Message}");
+            }
+        }
+
+        [Serializable]
+        private class SessionHistoryData
+        {
+            public List<SessionData> Sessions = new List<SessionData>();
+        }
+
+        /// <summary>
+        /// Clear all player data
+        /// </summary>
+        public void ClearData()
+        {
+            _currentProfile = new PlayerProfile();
+            _sessionHistory.Clear();
+
+            PlayerPrefs.DeleteKey(_saveKeyPrefix + "profile");
+            PlayerPrefs.DeleteKey(_saveKeyPrefix + "sessions");
+            PlayerPrefs.Save();
+        }
+
+        #endregion
+    }
+
+    /// <summary>
+    /// Retention data
+    /// </summary>
+    [Serializable]
+    public class RetentionData
+    {
+        public int DaysSinceFirstSeen;
+        public int DaysSinceLastSeen;
+        public int TotalSessions;
+        public float TotalPlayTime;
+        public float AverageSessionLength;
+        public EngagementLevel EngagementLevel;
+    }
+}

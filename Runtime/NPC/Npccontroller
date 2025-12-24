@@ -1,0 +1,1221 @@
+// ============================================================================
+// Deskillz SDK - NPC Controller
+// Base class for AI opponents with pluggable behavior system
+// ============================================================================
+
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace Deskillz.SDK.NPC
+{
+    /// <summary>
+    /// NPC difficulty levels
+    /// </summary>
+    public enum NPCDifficulty
+    {
+        Tutorial = 0,   // Very easy, for learning
+        Easy = 1,       // Beginner friendly
+        Medium = 2,     // Average skill
+        Hard = 3,       // Challenging
+        Expert = 4,     // Very difficult
+        Master = 5,     // Near-perfect play
+        Adaptive = 99   // Adjusts to player skill
+    }
+
+    /// <summary>
+    /// NPC personality types affecting behavior patterns
+    /// </summary>
+    public enum NPCPersonality
+    {
+        Balanced,       // Well-rounded play style
+        Aggressive,     // High risk, high reward
+        Defensive,      // Safe, conservative play
+        Tactical,       // Strategic, planning ahead
+        Erratic,        // Unpredictable patterns
+        Speedrunner,    // Focus on fast completion
+        Perfectionist   // Focus on accuracy over speed
+    }
+
+    /// <summary>
+    /// Current state of the NPC
+    /// </summary>
+    public enum NPCState
+    {
+        Idle,
+        Thinking,
+        Acting,
+        Waiting,
+        Celebrating,
+        Defeated,
+        Paused
+    }
+
+    /// <summary>
+    /// NPC performance metrics for tracking and analysis
+    /// </summary>
+    [Serializable]
+    public class NPCPerformanceMetrics
+    {
+        public int TotalActions { get; set; }
+        public int SuccessfulActions { get; set; }
+        public int FailedActions { get; set; }
+        public float AverageReactionTime { get; set; }
+        public float AverageAccuracy { get; set; }
+        public int CurrentScore { get; set; }
+        public int HighestCombo { get; set; }
+        public float PlayTime { get; set; }
+        public int MistakesMade { get; set; }
+        public float EfficiencyRating { get; set; }
+
+        private readonly List<float> _reactionTimes = new List<float>();
+        private readonly List<float> _accuracyScores = new List<float>();
+
+        public float SuccessRate => TotalActions > 0 ? (float)SuccessfulActions / TotalActions : 0f;
+
+        public void RecordAction(bool success, float reactionTime, float accuracy)
+        {
+            TotalActions++;
+            if (success)
+                SuccessfulActions++;
+            else
+                FailedActions++;
+
+            _reactionTimes.Add(reactionTime);
+            _accuracyScores.Add(accuracy);
+
+            // Update averages
+            float totalReaction = 0f;
+            foreach (var rt in _reactionTimes) totalReaction += rt;
+            AverageReactionTime = totalReaction / _reactionTimes.Count;
+
+            float totalAccuracy = 0f;
+            foreach (var acc in _accuracyScores) totalAccuracy += acc;
+            AverageAccuracy = totalAccuracy / _accuracyScores.Count;
+
+            // Calculate efficiency
+            EfficiencyRating = (SuccessRate * 0.4f) + (AverageAccuracy * 0.4f) + 
+                              (Mathf.Clamp01(1f - (AverageReactionTime / 2f)) * 0.2f);
+        }
+
+        public void Reset()
+        {
+            TotalActions = 0;
+            SuccessfulActions = 0;
+            FailedActions = 0;
+            AverageReactionTime = 0f;
+            AverageAccuracy = 0f;
+            CurrentScore = 0;
+            HighestCombo = 0;
+            PlayTime = 0f;
+            MistakesMade = 0;
+            EfficiencyRating = 0f;
+            _reactionTimes.Clear();
+            _accuracyScores.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Configuration for NPC behavior
+    /// </summary>
+    [Serializable]
+    public class NPCConfig
+    {
+        [Header("Identity")]
+        public string NPCId = "";
+        public string DisplayName = "Bot";
+        public string AvatarUrl = "";
+
+        [Header("Difficulty")]
+        public NPCDifficulty Difficulty = NPCDifficulty.Medium;
+        public NPCPersonality Personality = NPCPersonality.Balanced;
+
+        [Header("Skill Parameters")]
+        [Range(0f, 1f)] public float ReactionSpeed = 0.5f;      // 0 = slow, 1 = instant
+        [Range(0f, 1f)] public float Accuracy = 0.5f;           // 0 = inaccurate, 1 = perfect
+        [Range(0f, 1f)] public float DecisionQuality = 0.5f;    // 0 = poor decisions, 1 = optimal
+        [Range(0f, 1f)] public float Consistency = 0.5f;        // 0 = erratic, 1 = consistent
+        [Range(0f, 1f)] public float Adaptability = 0.5f;       // 0 = rigid, 1 = flexible
+
+        [Header("Behavior")]
+        [Range(0f, 1f)] public float Aggression = 0.5f;         // 0 = passive, 1 = aggressive
+        [Range(0f, 1f)] public float RiskTolerance = 0.5f;      // 0 = safe, 1 = risky
+        [Range(0f, 1f)] public float PatienceLevel = 0.5f;      // 0 = impatient, 1 = patient
+
+        [Header("Timing")]
+        public float MinThinkTime = 0.1f;
+        public float MaxThinkTime = 2.0f;
+        public float ActionCooldown = 0.05f;
+
+        [Header("Mistakes")]
+        [Range(0f, 1f)] public float MistakeChance = 0.1f;      // Chance to make intentional mistake
+        public bool SimulateHumanBehavior = true;               // Add human-like delays/errors
+
+        /// <summary>
+        /// Create config from difficulty preset
+        /// </summary>
+        public static NPCConfig FromDifficulty(NPCDifficulty difficulty, NPCPersonality personality = NPCPersonality.Balanced)
+        {
+            var config = new NPCConfig
+            {
+                Difficulty = difficulty,
+                Personality = personality
+            };
+
+            // Set base parameters from difficulty
+            switch (difficulty)
+            {
+                case NPCDifficulty.Tutorial:
+                    config.ReactionSpeed = 0.2f;
+                    config.Accuracy = 0.3f;
+                    config.DecisionQuality = 0.2f;
+                    config.Consistency = 0.4f;
+                    config.MistakeChance = 0.4f;
+                    config.MinThinkTime = 1.0f;
+                    config.MaxThinkTime = 3.0f;
+                    break;
+
+                case NPCDifficulty.Easy:
+                    config.ReactionSpeed = 0.35f;
+                    config.Accuracy = 0.45f;
+                    config.DecisionQuality = 0.35f;
+                    config.Consistency = 0.5f;
+                    config.MistakeChance = 0.25f;
+                    config.MinThinkTime = 0.5f;
+                    config.MaxThinkTime = 2.0f;
+                    break;
+
+                case NPCDifficulty.Medium:
+                    config.ReactionSpeed = 0.5f;
+                    config.Accuracy = 0.6f;
+                    config.DecisionQuality = 0.5f;
+                    config.Consistency = 0.6f;
+                    config.MistakeChance = 0.15f;
+                    config.MinThinkTime = 0.3f;
+                    config.MaxThinkTime = 1.5f;
+                    break;
+
+                case NPCDifficulty.Hard:
+                    config.ReactionSpeed = 0.7f;
+                    config.Accuracy = 0.75f;
+                    config.DecisionQuality = 0.7f;
+                    config.Consistency = 0.75f;
+                    config.MistakeChance = 0.08f;
+                    config.MinThinkTime = 0.15f;
+                    config.MaxThinkTime = 1.0f;
+                    break;
+
+                case NPCDifficulty.Expert:
+                    config.ReactionSpeed = 0.85f;
+                    config.Accuracy = 0.88f;
+                    config.DecisionQuality = 0.85f;
+                    config.Consistency = 0.85f;
+                    config.MistakeChance = 0.03f;
+                    config.MinThinkTime = 0.08f;
+                    config.MaxThinkTime = 0.5f;
+                    break;
+
+                case NPCDifficulty.Master:
+                    config.ReactionSpeed = 0.95f;
+                    config.Accuracy = 0.95f;
+                    config.DecisionQuality = 0.95f;
+                    config.Consistency = 0.95f;
+                    config.MistakeChance = 0.01f;
+                    config.MinThinkTime = 0.02f;
+                    config.MaxThinkTime = 0.3f;
+                    break;
+
+                case NPCDifficulty.Adaptive:
+                    // Start at medium, will be adjusted
+                    config.ReactionSpeed = 0.5f;
+                    config.Accuracy = 0.5f;
+                    config.DecisionQuality = 0.5f;
+                    config.Consistency = 0.5f;
+                    config.MistakeChance = 0.15f;
+                    config.Adaptability = 1.0f;
+                    break;
+            }
+
+            // Modify based on personality
+            ApplyPersonality(config, personality);
+
+            return config;
+        }
+
+        private static void ApplyPersonality(NPCConfig config, NPCPersonality personality)
+        {
+            switch (personality)
+            {
+                case NPCPersonality.Aggressive:
+                    config.Aggression = 0.85f;
+                    config.RiskTolerance = 0.8f;
+                    config.PatienceLevel = 0.3f;
+                    config.ReactionSpeed = Mathf.Min(1f, config.ReactionSpeed + 0.1f);
+                    break;
+
+                case NPCPersonality.Defensive:
+                    config.Aggression = 0.25f;
+                    config.RiskTolerance = 0.2f;
+                    config.PatienceLevel = 0.8f;
+                    config.Accuracy = Mathf.Min(1f, config.Accuracy + 0.1f);
+                    break;
+
+                case NPCPersonality.Tactical:
+                    config.Aggression = 0.5f;
+                    config.RiskTolerance = 0.4f;
+                    config.PatienceLevel = 0.7f;
+                    config.DecisionQuality = Mathf.Min(1f, config.DecisionQuality + 0.15f);
+                    break;
+
+                case NPCPersonality.Erratic:
+                    config.Consistency = Mathf.Max(0f, config.Consistency - 0.3f);
+                    config.Aggression = UnityEngine.Random.Range(0.2f, 0.8f);
+                    config.RiskTolerance = UnityEngine.Random.Range(0.3f, 0.9f);
+                    break;
+
+                case NPCPersonality.Speedrunner:
+                    config.ReactionSpeed = Mathf.Min(1f, config.ReactionSpeed + 0.2f);
+                    config.PatienceLevel = 0.1f;
+                    config.RiskTolerance = 0.7f;
+                    config.Accuracy = Mathf.Max(0f, config.Accuracy - 0.1f);
+                    break;
+
+                case NPCPersonality.Perfectionist:
+                    config.Accuracy = Mathf.Min(1f, config.Accuracy + 0.2f);
+                    config.PatienceLevel = 0.9f;
+                    config.RiskTolerance = 0.1f;
+                    config.ReactionSpeed = Mathf.Max(0f, config.ReactionSpeed - 0.15f);
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Simulated input from NPC (mimics player input)
+    /// </summary>
+    [Serializable]
+    public class NPCInput
+    {
+        public float Timestamp { get; set; }
+        public Vector2 Movement { get; set; }
+        public Vector2 LookDirection { get; set; }
+        public bool[] ButtonStates { get; set; }
+        public Dictionary<string, float> AxisValues { get; set; }
+        public Dictionary<string, object> CustomInputs { get; set; }
+
+        public NPCInput()
+        {
+            ButtonStates = new bool[16];
+            AxisValues = new Dictionary<string, float>();
+            CustomInputs = new Dictionary<string, object>();
+        }
+
+        public void SetButton(int index, bool pressed)
+        {
+            if (index >= 0 && index < ButtonStates.Length)
+                ButtonStates[index] = pressed;
+        }
+
+        public bool GetButton(int index)
+        {
+            return index >= 0 && index < ButtonStates.Length && ButtonStates[index];
+        }
+
+        public void SetAxis(string name, float value)
+        {
+            AxisValues[name] = Mathf.Clamp(value, -1f, 1f);
+        }
+
+        public float GetAxis(string name)
+        {
+            return AxisValues.TryGetValue(name, out float value) ? value : 0f;
+        }
+
+        public void SetCustom(string key, object value)
+        {
+            CustomInputs[key] = value;
+        }
+
+        public T GetCustom<T>(string key, T defaultValue = default)
+        {
+            if (CustomInputs.TryGetValue(key, out object value) && value is T typedValue)
+                return typedValue;
+            return defaultValue;
+        }
+
+        public void Clear()
+        {
+            Movement = Vector2.zero;
+            LookDirection = Vector2.zero;
+            for (int i = 0; i < ButtonStates.Length; i++)
+                ButtonStates[i] = false;
+            AxisValues.Clear();
+            CustomInputs.Clear();
+        }
+
+        public NPCInput Clone()
+        {
+            var clone = new NPCInput
+            {
+                Timestamp = Timestamp,
+                Movement = Movement,
+                LookDirection = LookDirection,
+                ButtonStates = (bool[])ButtonStates.Clone()
+            };
+            foreach (var kvp in AxisValues)
+                clone.AxisValues[kvp.Key] = kvp.Value;
+            foreach (var kvp in CustomInputs)
+                clone.CustomInputs[kvp.Key] = kvp.Value;
+            return clone;
+        }
+    }
+
+    /// <summary>
+    /// Base interface for NPC behavior providers
+    /// </summary>
+    public interface INPCBehavior
+    {
+        void Initialize(NPCController controller);
+        void OnEnter();
+        void OnUpdate(float deltaTime);
+        void OnExit();
+        NPCInput GetInput();
+        bool IsComplete { get; }
+        string BehaviorName { get; }
+    }
+
+    /// <summary>
+    /// Event args for NPC state changes
+    /// </summary>
+    public class NPCStateChangedEventArgs : EventArgs
+    {
+        public NPCState PreviousState { get; }
+        public NPCState NewState { get; }
+        public float TimeInPreviousState { get; }
+
+        public NPCStateChangedEventArgs(NPCState previous, NPCState current, float time)
+        {
+            PreviousState = previous;
+            NewState = current;
+            TimeInPreviousState = time;
+        }
+    }
+
+    /// <summary>
+    /// Event args for NPC actions
+    /// </summary>
+    public class NPCActionEventArgs : EventArgs
+    {
+        public string ActionName { get; }
+        public bool Success { get; }
+        public float ReactionTime { get; }
+        public object Data { get; }
+
+        public NPCActionEventArgs(string action, bool success, float reactionTime, object data = null)
+        {
+            ActionName = action;
+            Success = success;
+            ReactionTime = reactionTime;
+            Data = data;
+        }
+    }
+
+    /// <summary>
+    /// Base NPC Controller - Manages AI opponent behavior
+    /// </summary>
+    public class NPCController : MonoBehaviour
+    {
+        [Header("Configuration")]
+        [SerializeField] private NPCConfig _config;
+        [SerializeField] private bool _autoStart = true;
+
+        [Header("Debug")]
+        [SerializeField] private bool _showDebugInfo = false;
+        [SerializeField] private bool _logActions = false;
+
+        // State
+        private NPCState _currentState = NPCState.Idle;
+        private float _stateTimer;
+        private float _thinkTimer;
+        private float _actionCooldownTimer;
+        private bool _isActive;
+        private bool _isPaused;
+
+        // Input
+        private NPCInput _currentInput;
+        private NPCInput _previousInput;
+
+        // Behavior
+        private INPCBehavior _currentBehavior;
+        private readonly Queue<INPCBehavior> _behaviorQueue = new Queue<INPCBehavior>();
+        private readonly Dictionary<string, INPCBehavior> _behaviorLibrary = new Dictionary<string, INPCBehavior>();
+
+        // Performance
+        private NPCPerformanceMetrics _metrics;
+        private float _lastActionTime;
+
+        // Random with seed for reproducibility
+        private System.Random _random;
+        private int _seed;
+
+        // Events
+        public event EventHandler<NPCStateChangedEventArgs> OnStateChanged;
+        public event EventHandler<NPCActionEventArgs> OnActionPerformed;
+        public event EventHandler<NPCInput> OnInputGenerated;
+        public event EventHandler OnActivated;
+        public event EventHandler OnDeactivated;
+
+        // Properties
+        public NPCConfig Config => _config;
+        public NPCState CurrentState => _currentState;
+        public bool IsActive => _isActive;
+        public bool IsPaused => _isPaused;
+        public NPCInput CurrentInput => _currentInput;
+        public NPCPerformanceMetrics Metrics => _metrics;
+        public INPCBehavior CurrentBehavior => _currentBehavior;
+        public string NPCId => _config?.NPCId ?? gameObject.name;
+        public string DisplayName => _config?.DisplayName ?? "Bot";
+
+        #region Unity Lifecycle
+
+        protected virtual void Awake()
+        {
+            _currentInput = new NPCInput();
+            _previousInput = new NPCInput();
+            _metrics = new NPCPerformanceMetrics();
+
+            if (_config == null)
+                _config = NPCConfig.FromDifficulty(NPCDifficulty.Medium);
+
+            // Initialize random with time-based seed
+            _seed = (int)(Time.realtimeSinceStartup * 1000) + gameObject.GetInstanceID();
+            _random = new System.Random(_seed);
+        }
+
+        protected virtual void Start()
+        {
+            if (_autoStart)
+                Activate();
+        }
+
+        protected virtual void Update()
+        {
+            if (!_isActive || _isPaused)
+                return;
+
+            float deltaTime = Time.deltaTime;
+            _stateTimer += deltaTime;
+            _metrics.PlayTime += deltaTime;
+
+            // Update cooldown
+            if (_actionCooldownTimer > 0)
+                _actionCooldownTimer -= deltaTime;
+
+            // Update current behavior
+            UpdateBehavior(deltaTime);
+
+            // Generate input
+            UpdateInput(deltaTime);
+        }
+
+        protected virtual void OnDestroy()
+        {
+            Deactivate();
+        }
+
+        #endregion
+
+        #region Initialization
+
+        /// <summary>
+        /// Initialize NPC with configuration
+        /// </summary>
+        public void Initialize(NPCConfig config)
+        {
+            _config = config ?? throw new ArgumentNullException(nameof(config));
+
+            if (string.IsNullOrEmpty(_config.NPCId))
+                _config.NPCId = $"npc_{Guid.NewGuid():N}";
+
+            _metrics.Reset();
+
+            if (_logActions)
+                Debug.Log($"[NPC] Initialized: {DisplayName} ({_config.Difficulty})");
+        }
+
+        /// <summary>
+        /// Initialize with difficulty preset
+        /// </summary>
+        public void Initialize(NPCDifficulty difficulty, NPCPersonality personality = NPCPersonality.Balanced)
+        {
+            Initialize(NPCConfig.FromDifficulty(difficulty, personality));
+        }
+
+        /// <summary>
+        /// Set random seed for reproducible behavior
+        /// </summary>
+        public void SetSeed(int seed)
+        {
+            _seed = seed;
+            _random = new System.Random(seed);
+        }
+
+        #endregion
+
+        #region Activation
+
+        /// <summary>
+        /// Activate the NPC
+        /// </summary>
+        public void Activate()
+        {
+            if (_isActive)
+                return;
+
+            _isActive = true;
+            _isPaused = false;
+            _metrics.Reset();
+            SetState(NPCState.Idle);
+
+            OnActivated?.Invoke(this, EventArgs.Empty);
+
+            if (_logActions)
+                Debug.Log($"[NPC] Activated: {DisplayName}");
+        }
+
+        /// <summary>
+        /// Deactivate the NPC
+        /// </summary>
+        public void Deactivate()
+        {
+            if (!_isActive)
+                return;
+
+            _isActive = false;
+            _currentInput.Clear();
+            ClearBehaviors();
+            SetState(NPCState.Idle);
+
+            OnDeactivated?.Invoke(this, EventArgs.Empty);
+
+            if (_logActions)
+                Debug.Log($"[NPC] Deactivated: {DisplayName}");
+        }
+
+        /// <summary>
+        /// Pause NPC behavior
+        /// </summary>
+        public void Pause()
+        {
+            _isPaused = true;
+            SetState(NPCState.Paused);
+        }
+
+        /// <summary>
+        /// Resume NPC behavior
+        /// </summary>
+        public void Resume()
+        {
+            _isPaused = false;
+            SetState(NPCState.Idle);
+        }
+
+        #endregion
+
+        #region State Management
+
+        /// <summary>
+        /// Set NPC state
+        /// </summary>
+        protected void SetState(NPCState newState)
+        {
+            if (_currentState == newState)
+                return;
+
+            var previousState = _currentState;
+            var timeInState = _stateTimer;
+
+            _currentState = newState;
+            _stateTimer = 0f;
+
+            OnStateChanged?.Invoke(this, new NPCStateChangedEventArgs(previousState, newState, timeInState));
+
+            if (_logActions)
+                Debug.Log($"[NPC] {DisplayName} state: {previousState} -> {newState}");
+        }
+
+        #endregion
+
+        #region Behavior Management
+
+        /// <summary>
+        /// Register a behavior in the library
+        /// </summary>
+        public void RegisterBehavior(string name, INPCBehavior behavior)
+        {
+            if (behavior == null)
+                throw new ArgumentNullException(nameof(behavior));
+
+            behavior.Initialize(this);
+            _behaviorLibrary[name] = behavior;
+        }
+
+        /// <summary>
+        /// Set the current behavior by name
+        /// </summary>
+        public bool SetBehavior(string name)
+        {
+            if (!_behaviorLibrary.TryGetValue(name, out var behavior))
+            {
+                Debug.LogWarning($"[NPC] Behavior not found: {name}");
+                return false;
+            }
+
+            SetBehavior(behavior);
+            return true;
+        }
+
+        /// <summary>
+        /// Set the current behavior
+        /// </summary>
+        public void SetBehavior(INPCBehavior behavior)
+        {
+            if (_currentBehavior != null)
+                _currentBehavior.OnExit();
+
+            _currentBehavior = behavior;
+
+            if (_currentBehavior != null)
+            {
+                _currentBehavior.Initialize(this);
+                _currentBehavior.OnEnter();
+                SetState(NPCState.Acting);
+
+                if (_logActions)
+                    Debug.Log($"[NPC] {DisplayName} behavior: {behavior.BehaviorName}");
+            }
+        }
+
+        /// <summary>
+        /// Queue a behavior to execute after current
+        /// </summary>
+        public void QueueBehavior(INPCBehavior behavior)
+        {
+            if (behavior == null)
+                return;
+
+            behavior.Initialize(this);
+            _behaviorQueue.Enqueue(behavior);
+
+            if (_currentBehavior == null)
+                ProcessBehaviorQueue();
+        }
+
+        /// <summary>
+        /// Queue a behavior by name
+        /// </summary>
+        public bool QueueBehavior(string name)
+        {
+            if (!_behaviorLibrary.TryGetValue(name, out var behavior))
+                return false;
+
+            QueueBehavior(behavior);
+            return true;
+        }
+
+        /// <summary>
+        /// Clear all queued behaviors
+        /// </summary>
+        public void ClearBehaviors()
+        {
+            _behaviorQueue.Clear();
+
+            if (_currentBehavior != null)
+            {
+                _currentBehavior.OnExit();
+                _currentBehavior = null;
+            }
+
+            SetState(NPCState.Idle);
+        }
+
+        private void UpdateBehavior(float deltaTime)
+        {
+            if (_currentBehavior == null)
+            {
+                ProcessBehaviorQueue();
+                return;
+            }
+
+            _currentBehavior.OnUpdate(deltaTime);
+
+            if (_currentBehavior.IsComplete)
+            {
+                _currentBehavior.OnExit();
+                _currentBehavior = null;
+                ProcessBehaviorQueue();
+            }
+        }
+
+        private void ProcessBehaviorQueue()
+        {
+            if (_behaviorQueue.Count > 0)
+            {
+                var nextBehavior = _behaviorQueue.Dequeue();
+                SetBehavior(nextBehavior);
+            }
+            else
+            {
+                SetState(NPCState.Idle);
+            }
+        }
+
+        #endregion
+
+        #region Input Generation
+
+        private void UpdateInput(float deltaTime)
+        {
+            // Store previous input
+            _previousInput = _currentInput.Clone();
+            _currentInput.Timestamp = Time.time;
+
+            // Get input from behavior
+            if (_currentBehavior != null)
+            {
+                var behaviorInput = _currentBehavior.GetInput();
+                if (behaviorInput != null)
+                {
+                    ApplyInput(behaviorInput);
+                }
+            }
+
+            // Apply human-like behavior (jitter, delays, etc.)
+            if (_config.SimulateHumanBehavior)
+            {
+                ApplyHumanBehavior();
+            }
+
+            OnInputGenerated?.Invoke(this, _currentInput);
+        }
+
+        private void ApplyInput(NPCInput input)
+        {
+            _currentInput.Movement = input.Movement;
+            _currentInput.LookDirection = input.LookDirection;
+
+            for (int i = 0; i < input.ButtonStates.Length; i++)
+                _currentInput.ButtonStates[i] = input.ButtonStates[i];
+
+            foreach (var kvp in input.AxisValues)
+                _currentInput.AxisValues[kvp.Key] = kvp.Value;
+
+            foreach (var kvp in input.CustomInputs)
+                _currentInput.CustomInputs[kvp.Key] = kvp.Value;
+        }
+
+        private void ApplyHumanBehavior()
+        {
+            // Add slight input jitter based on consistency
+            float jitter = (1f - _config.Consistency) * 0.05f;
+            if (jitter > 0)
+            {
+                _currentInput.Movement += new Vector2(
+                    (float)(_random.NextDouble() * 2 - 1) * jitter,
+                    (float)(_random.NextDouble() * 2 - 1) * jitter
+                );
+
+                // Clamp movement
+                _currentInput.Movement = Vector2.ClampMagnitude(_currentInput.Movement, 1f);
+            }
+
+            // Occasional mistakes based on mistake chance
+            if (_config.MistakeChance > 0 && _random.NextDouble() < _config.MistakeChance * Time.deltaTime)
+            {
+                MakeMistake();
+            }
+        }
+
+        private void MakeMistake()
+        {
+            _metrics.MistakesMade++;
+
+            // Random mistake types
+            int mistakeType = _random.Next(4);
+            switch (mistakeType)
+            {
+                case 0: // Wrong direction briefly
+                    _currentInput.Movement = -_currentInput.Movement;
+                    break;
+                case 1: // Release a button
+                    int buttonIndex = _random.Next(_currentInput.ButtonStates.Length);
+                    _currentInput.ButtonStates[buttonIndex] = false;
+                    break;
+                case 2: // Pause input
+                    _currentInput.Movement = Vector2.zero;
+                    break;
+                case 3: // Overshoot
+                    _currentInput.Movement *= 1.3f;
+                    break;
+            }
+
+            if (_logActions)
+                Debug.Log($"[NPC] {DisplayName} made a mistake (type: {mistakeType})");
+        }
+
+        #endregion
+
+        #region Action Recording
+
+        /// <summary>
+        /// Record an action for metrics
+        /// </summary>
+        public void RecordAction(string actionName, bool success, float accuracy = 1f, object data = null)
+        {
+            if (_actionCooldownTimer > 0)
+                return;
+
+            float reactionTime = Time.time - _lastActionTime;
+            _lastActionTime = Time.time;
+            _actionCooldownTimer = _config.ActionCooldown;
+
+            _metrics.RecordAction(success, reactionTime, accuracy);
+
+            OnActionPerformed?.Invoke(this, new NPCActionEventArgs(actionName, success, reactionTime, data));
+
+            if (_logActions)
+                Debug.Log($"[NPC] {DisplayName} action: {actionName} (success: {success}, accuracy: {accuracy:F2})");
+        }
+
+        /// <summary>
+        /// Update NPC score
+        /// </summary>
+        public void UpdateScore(int score)
+        {
+            _metrics.CurrentScore = score;
+        }
+
+        /// <summary>
+        /// Update combo count
+        /// </summary>
+        public void UpdateCombo(int combo)
+        {
+            if (combo > _metrics.HighestCombo)
+                _metrics.HighestCombo = combo;
+        }
+
+        #endregion
+
+        #region Decision Making
+
+        /// <summary>
+        /// Get think time based on config
+        /// </summary>
+        public float GetThinkTime()
+        {
+            float baseTime = Mathf.Lerp(_config.MaxThinkTime, _config.MinThinkTime, _config.ReactionSpeed);
+            float variance = (1f - _config.Consistency) * 0.5f;
+            float randomFactor = 1f + (float)(_random.NextDouble() * 2 - 1) * variance;
+            return baseTime * randomFactor;
+        }
+
+        /// <summary>
+        /// Should NPC take a risky action?
+        /// </summary>
+        public bool ShouldTakeRisk(float riskLevel = 0.5f)
+        {
+            float threshold = _config.RiskTolerance * (1f + (_config.Aggression - 0.5f));
+            return _random.NextDouble() < threshold * (1f - riskLevel);
+        }
+
+        /// <summary>
+        /// Get accuracy for current action (with random variation)
+        /// </summary>
+        public float GetActionAccuracy()
+        {
+            float baseAccuracy = _config.Accuracy;
+            float variance = (1f - _config.Consistency) * 0.2f;
+            float randomFactor = (float)(_random.NextDouble() * 2 - 1) * variance;
+            return Mathf.Clamp01(baseAccuracy + randomFactor);
+        }
+
+        /// <summary>
+        /// Should NPC make a mistake now?
+        /// </summary>
+        public bool ShouldMakeMistake()
+        {
+            return _random.NextDouble() < _config.MistakeChance;
+        }
+
+        /// <summary>
+        /// Get weighted random choice
+        /// </summary>
+        public int WeightedChoice(float[] weights)
+        {
+            float total = 0f;
+            foreach (var w in weights) total += w;
+
+            float random = (float)_random.NextDouble() * total;
+            float cumulative = 0f;
+
+            for (int i = 0; i < weights.Length; i++)
+            {
+                cumulative += weights[i];
+                if (random <= cumulative)
+                    return i;
+            }
+
+            return weights.Length - 1;
+        }
+
+        /// <summary>
+        /// Get random value (0-1)
+        /// </summary>
+        public float Random()
+        {
+            return (float)_random.NextDouble();
+        }
+
+        /// <summary>
+        /// Get random value in range
+        /// </summary>
+        public float Random(float min, float max)
+        {
+            return min + (float)_random.NextDouble() * (max - min);
+        }
+
+        /// <summary>
+        /// Get random int in range (exclusive max)
+        /// </summary>
+        public int RandomInt(int min, int max)
+        {
+            return _random.Next(min, max);
+        }
+
+        #endregion
+
+        #region Adaptive Difficulty
+
+        /// <summary>
+        /// Adjust difficulty based on player performance
+        /// </summary>
+        public void AdjustDifficulty(float playerPerformance)
+        {
+            if (_config.Difficulty != NPCDifficulty.Adaptive)
+                return;
+
+            float adjustment = (playerPerformance - 0.5f) * _config.Adaptability * 0.1f;
+
+            _config.ReactionSpeed = Mathf.Clamp01(_config.ReactionSpeed + adjustment);
+            _config.Accuracy = Mathf.Clamp01(_config.Accuracy + adjustment);
+            _config.DecisionQuality = Mathf.Clamp01(_config.DecisionQuality + adjustment);
+            _config.MistakeChance = Mathf.Clamp01(_config.MistakeChance - adjustment * 0.5f);
+
+            if (_logActions)
+                Debug.Log($"[NPC] {DisplayName} difficulty adjusted: player performance = {playerPerformance:F2}");
+        }
+
+        #endregion
+
+        #region Debug
+
+        private void OnGUI()
+        {
+            if (!_showDebugInfo || !_isActive)
+                return;
+
+            Vector3 screenPos = Camera.main?.WorldToScreenPoint(transform.position) ?? Vector3.zero;
+            if (screenPos.z < 0)
+                return;
+
+            float x = screenPos.x;
+            float y = Screen.height - screenPos.y - 100;
+
+            GUI.Box(new Rect(x - 75, y, 150, 100), "");
+            GUI.Label(new Rect(x - 70, y + 5, 140, 20), $"NPC: {DisplayName}");
+            GUI.Label(new Rect(x - 70, y + 20, 140, 20), $"State: {_currentState}");
+            GUI.Label(new Rect(x - 70, y + 35, 140, 20), $"Behavior: {_currentBehavior?.BehaviorName ?? "None"}");
+            GUI.Label(new Rect(x - 70, y + 50, 140, 20), $"Score: {_metrics.CurrentScore}");
+            GUI.Label(new Rect(x - 70, y + 65, 140, 20), $"Success: {_metrics.SuccessRate:P0}");
+            GUI.Label(new Rect(x - 70, y + 80, 140, 20), $"Input: {_currentInput.Movement}");
+        }
+
+        #endregion
+    }
+
+    #region Common Behaviors
+
+    /// <summary>
+    /// Simple idle behavior - does nothing
+    /// </summary>
+    public class IdleBehavior : INPCBehavior
+    {
+        private NPCController _controller;
+        private float _duration;
+        private float _elapsed;
+
+        public string BehaviorName => "Idle";
+        public bool IsComplete => _elapsed >= _duration;
+
+        public IdleBehavior(float duration = float.MaxValue)
+        {
+            _duration = duration;
+        }
+
+        public void Initialize(NPCController controller) => _controller = controller;
+        public void OnEnter() => _elapsed = 0f;
+        public void OnUpdate(float deltaTime) => _elapsed += deltaTime;
+        public void OnExit() { }
+        public NPCInput GetInput() => new NPCInput();
+    }
+
+    /// <summary>
+    /// Wait for condition behavior
+    /// </summary>
+    public class WaitForConditionBehavior : INPCBehavior
+    {
+        private NPCController _controller;
+        private readonly Func<bool> _condition;
+        private readonly float _timeout;
+        private float _elapsed;
+
+        public string BehaviorName => "WaitForCondition";
+        public bool IsComplete => _condition?.Invoke() == true || _elapsed >= _timeout;
+
+        public WaitForConditionBehavior(Func<bool> condition, float timeout = 30f)
+        {
+            _condition = condition;
+            _timeout = timeout;
+        }
+
+        public void Initialize(NPCController controller) => _controller = controller;
+        public void OnEnter() => _elapsed = 0f;
+        public void OnUpdate(float deltaTime) => _elapsed += deltaTime;
+        public void OnExit() { }
+        public NPCInput GetInput() => new NPCInput();
+    }
+
+    /// <summary>
+    /// Move to target position behavior
+    /// </summary>
+    public class MoveToPositionBehavior : INPCBehavior
+    {
+        private NPCController _controller;
+        private Vector3 _targetPosition;
+        private float _arrivalThreshold;
+        private float _moveSpeed;
+        private NPCInput _input;
+
+        public string BehaviorName => "MoveToPosition";
+        public bool IsComplete { get; private set; }
+
+        public MoveToPositionBehavior(Vector3 target, float arrivalThreshold = 0.5f, float moveSpeed = 1f)
+        {
+            _targetPosition = target;
+            _arrivalThreshold = arrivalThreshold;
+            _moveSpeed = moveSpeed;
+            _input = new NPCInput();
+        }
+
+        public void Initialize(NPCController controller) => _controller = controller;
+
+        public void OnEnter()
+        {
+            IsComplete = false;
+        }
+
+        public void OnUpdate(float deltaTime)
+        {
+            if (_controller == null)
+            {
+                IsComplete = true;
+                return;
+            }
+
+            Vector3 currentPos = _controller.transform.position;
+            Vector3 direction = _targetPosition - currentPos;
+            float distance = direction.magnitude;
+
+            if (distance <= _arrivalThreshold)
+            {
+                IsComplete = true;
+                _input.Movement = Vector2.zero;
+                return;
+            }
+
+            Vector3 normalized = direction.normalized;
+            _input.Movement = new Vector2(normalized.x, normalized.z) * _moveSpeed;
+            _input.LookDirection = new Vector2(normalized.x, normalized.z);
+        }
+
+        public void OnExit()
+        {
+            _input.Movement = Vector2.zero;
+        }
+
+        public NPCInput GetInput() => _input;
+    }
+
+    /// <summary>
+    /// Sequence of behaviors
+    /// </summary>
+    public class SequenceBehavior : INPCBehavior
+    {
+        private NPCController _controller;
+        private readonly List<INPCBehavior> _behaviors;
+        private int _currentIndex;
+
+        public string BehaviorName => "Sequence";
+        public bool IsComplete => _currentIndex >= _behaviors.Count;
+
+        public SequenceBehavior(params INPCBehavior[] behaviors)
+        {
+            _behaviors = new List<INPCBehavior>(behaviors);
+        }
+
+        public void Initialize(NPCController controller)
+        {
+            _controller = controller;
+            foreach (var behavior in _behaviors)
+                behavior.Initialize(controller);
+        }
+
+        public void OnEnter()
+        {
+            _currentIndex = 0;
+            if (_behaviors.Count > 0)
+                _behaviors[0].OnEnter();
+        }
+
+        public void OnUpdate(float deltaTime)
+        {
+            if (IsComplete)
+                return;
+
+            var current = _behaviors[_currentIndex];
+            current.OnUpdate(deltaTime);
+
+            if (current.IsComplete)
+            {
+                current.OnExit();
+                _currentIndex++;
+
+                if (!IsComplete)
+                    _behaviors[_currentIndex].OnEnter();
+            }
+        }
+
+        public void OnExit()
+        {
+            if (_currentIndex < _behaviors.Count)
+                _behaviors[_currentIndex].OnExit();
+        }
+
+        public NPCInput GetInput()
+        {
+            return IsComplete ? new NPCInput() : _behaviors[_currentIndex].GetInput();
+        }
+    }
+
+    #endregion
+}
