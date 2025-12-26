@@ -8,6 +8,23 @@ using UnityEngine;
 
 namespace Deskillz
 {
+    // =============================================================================
+    // NAVIGATION ACTION ENUM
+    // =============================================================================
+
+    /// <summary>
+    /// Navigation actions from deep links (when app is opened from website).
+    /// </summary>
+    public enum NavigationAction
+    {
+        None,
+        Tournaments,    // deskillz://tournaments
+        Wallet,         // deskillz://wallet
+        Profile,        // deskillz://profile
+        Game,           // deskillz://game?id=xxx
+        Settings        // deskillz://settings
+    }
+
     /// <summary>
     /// Central event system for the Deskillz SDK.
     /// Subscribe to these events to respond to SDK state changes.
@@ -58,6 +75,13 @@ namespace Deskillz
         /// Fired when deep link parsing fails.
         /// </summary>
         public static event Action<string> OnDeepLinkError;
+
+        /// <summary>
+        /// Fired when a navigation deep link is received (not a match launch).
+        /// Action types: Tournaments, Wallet, Profile, Game, Settings
+        /// TargetId is optional (e.g., game ID for Game action).
+        /// </summary>
+        public static event Action<NavigationAction, string> OnNavigationReceived;
 
         // =============================================================================
         // PLAYER EVENTS
@@ -364,6 +388,12 @@ namespace Deskillz
         {
             DeskillzLogger.Error($"Deep Link Error: {error}");
             SafeInvoke(OnDeepLinkError, error);
+        }
+
+        internal static void RaiseNavigationReceived(NavigationAction action, string targetId)
+        {
+            DeskillzLogger.LogEvent("Navigation Received", $"{action}, Target: {targetId ?? "none"}");
+            SafeInvoke(OnNavigationReceived, action, targetId);
         }
 
         // =============================================================================

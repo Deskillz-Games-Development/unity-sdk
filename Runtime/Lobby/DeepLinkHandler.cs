@@ -57,7 +57,27 @@ namespace Deskillz
         /// Fired when app is opened without a deep link (normal launch).
         /// </summary>
         public static event Action OnNormalLaunch;
+       /// <summary>
+        /// Fired when a navigation deep link is received (not a match launch).
+        /// </summary>
+        public static event Action<NavigationAction, string> OnNavigationReceived;
 
+        // =============================================================================
+        // NAVIGATION ACTIONS
+        // =============================================================================
+
+        /// <summary>
+        /// Navigation actions from deep links (when app is opened from website).
+        /// </summary>
+        public enum NavigationAction
+        {
+            None,
+            Tournaments,    // deskillz://tournaments
+            Wallet,         // deskillz://wallet
+            Profile,        // deskillz://profile
+            Game,           // deskillz://game?id=xxx
+            Settings        // deskillz://settings
+        }
         // =============================================================================
         // STATE
         // =============================================================================
@@ -133,7 +153,7 @@ namespace Deskillz
             HandleDeepLink(initialDeepLink);
         }
 
-        /// <summary>
+       /// <summary>
         /// Handle an incoming deep link.
         /// </summary>
         private void HandleDeepLink(string url)
@@ -142,6 +162,22 @@ namespace Deskillz
 
             try
             {
+                // =====================================================
+                // STEP 1: Check for navigation deep links FIRST
+                // These don't have matchId/token parameters
+                // =====================================================
+                var navAction = ParseNavigationLink(url);
+                if (navAction.Action != NavigationAction.None)
+                {
+                    DeskillzLogger.Info($"Navigation deep link: {navAction.Action}, Target: {navAction.TargetId}");
+                    OnNavigationReceived?.Invoke(navAction.Action, navAction.TargetId);
+                    DeskillzEvents.RaiseNavigationReceived(navAction.Action, navAction.TargetId);
+                    return;
+                }
+
+                // =====================================================
+                // STEP 2: Try to parse as match launch deep link
+                // =====================================================
                 var matchData = ParseDeepLink(url);
 
                 if (matchData == null)
@@ -185,7 +221,71 @@ namespace Deskillz
                 OnDeepLinkError?.Invoke(ex.Message);
             }
         }
+        /// <summary>
+        /// Parse navigation deep links (tournaments, wallet, profile, etc.)
+        /// Format: deskillz://tournaments OR deskillz://game?id=xxx
+        /// </summary>
+        private (NavigationAction Action, string TargetId) ParseNavigationLink(string url)
+        {
+            if (string.IsNullOrEmpty(url))
+                return (NavigationAction.None, null);
 
+            try
+            {
+                // Extract the host/path part (e.g., "tournaments" from "deskillz://tournaments")
+                string lowerUrl = url.ToLower();
+                
+                // Get the part after ://
+                int schemeEnd = url.IndexOf("://");
+                if (schemeEnd < 0) 
+                    return (NavigationAction.None, null);
+
+                string remainder = url.Substring(schemeEnd + 3);
+                
+                // Split by ? to separate path from query
+                int queryStart = remainder.IndexOf('?');
+                string path = queryStart >= 0 ? remainder.Substring(0, queryStart) : remainder;
+                string query = queryStart >= 0 ? remainder.Substring(queryStart + 1) : "";
+
+                // Remove trailing slashes
+                path = path.TrimEnd('/').ToLower();
+
+                // Parse based on path
+                switch (path)
+                {
+                    case "tournaments":
+                    case "tournament":
+                        return (NavigationAction.Tournaments, null);
+
+                    case "wallet":
+                        return (NavigationAction.Wallet, null);
+
+                    case "profile":
+                        return (NavigationAction.Profile, null);
+
+                    case "settings":
+                        return (NavigationAction.Settings, null);
+
+                    case "game":
+                    case "games":
+                        // Extract game ID from query string
+                        var queryParams = ParseQueryString(query);
+                        string gameId = GetParam(queryParams, "id", "gameId", "game_id");
+                        if (!string.IsNullOrEmpty(gameId))
+                            return (NavigationAction.Game, gameId);
+                        return (NavigationAction.None, null);
+
+                    default:
+                        // Not a navigation link (might be a match link)
+                        return (NavigationAction.None, null);
+                }
+            }
+            catch (Exception ex)
+            {
+                DeskillzLogger.Error($"Failed to parse navigation link: {ex.Message}");
+                return (NavigationAction.None, null);
+            }
+        }
         /// <summary>
         /// Parse deep link URL into MatchLaunchData.
         /// Expected format: deskillz-gamename://match?id=xxx&token=xxx&tournament=xxx&mode=sync
