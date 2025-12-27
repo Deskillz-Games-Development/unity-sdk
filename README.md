@@ -12,6 +12,7 @@
   <a href="#installation">Installation</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#features">Features</a> •
+  <a href="#private-rooms">Private Rooms</a> •
   <a href="#navigation-deep-links">Navigation Links</a> •
   <a href="#documentation">Documentation</a> •
   <a href="#support">Support</a>
@@ -21,7 +22,7 @@
 
 ## Overview
 
-The Deskillz Unity SDK enables game developers to integrate their Unity games with the Deskillz.Games competitive gaming platform. Players can compete in skill-based tournaments and win cryptocurrency prizes (BTC, ETH, SOL, XRP, BNB, USDT, USDC).
+The Deskillz Unity SDK enables game developers to integrate their Unity games with the Deskillz.Games competitive gaming platform. Players can compete in skill-based tournaments, create private rooms to play with friends, and win cryptocurrency prizes (BTC, ETH, SOL, XRP, BNB, USDT, USDC).
 
 ### How It Works (Global Lobby Architecture)
 
@@ -241,6 +242,140 @@ Deskillz.EndMatch();
 
 That's it for basic integration! The SDK handles everything else automatically.
 
+---
+
+## Private Rooms (NEW in v2.2.0)
+
+Players can create private rooms to play with friends! The SDK includes a full Room API and pre-built UI components.
+
+### Room API
+
+```csharp
+using Deskillz.Rooms;
+
+// Create a room
+DeskillzRooms.CreateRoom(new CreateRoomConfig
+{
+    Name = "My Room",
+    EntryFee = 5.00m,
+    EntryCurrency = "USDT",
+    MaxPlayers = 4,
+    MinPlayers = 2,
+    Mode = RoomMode.Sync,
+    Visibility = RoomVisibility.PublicListed
+},
+onSuccess: (room) => Debug.Log($"Room created: {room.RoomCode}"),
+onError: (error) => Debug.LogError(error.Message));
+
+// Quick create with defaults
+DeskillzRooms.QuickCreateRoom("Quick Match", 1.00m, OnSuccess, OnError);
+
+// Join by code
+DeskillzRooms.JoinRoom("DSKZ-AB3C", OnSuccess, OnError);
+
+// Browse public rooms
+DeskillzRooms.GetPublicRooms(
+    onSuccess: (rooms) => { /* Display room list */ },
+    onError: (error) => { /* Handle error */ });
+
+// Get room by code (preview before joining)
+DeskillzRooms.GetRoomByCode("DSKZ-AB3C", OnSuccess, OnError);
+
+// Ready up
+DeskillzRooms.SetReady(true);
+
+// Send chat message
+DeskillzRooms.SendChat("Hello everyone!");
+
+// Leave room
+DeskillzRooms.LeaveRoom(OnSuccess, OnError);
+
+// Host: Cancel room
+DeskillzRooms.CancelRoom(OnSuccess, OnError);
+
+// Host: Kick player
+DeskillzRooms.KickPlayer(playerId, OnSuccess, OnError);
+
+// Host: Start match
+DeskillzRooms.StartMatch(OnSuccess, OnError);
+```
+
+### Room Events
+
+```csharp
+// Subscribe to room events
+DeskillzRooms.OnRoomJoined += (room) => Debug.Log($"Joined: {room.Name}");
+DeskillzRooms.OnRoomUpdated += (room) => UpdateRoomDisplay(room);
+DeskillzRooms.OnPlayerJoined += (player) => Debug.Log($"{player.Username} joined");
+DeskillzRooms.OnPlayerLeft += (playerId) => Debug.Log($"Player left");
+DeskillzRooms.OnPlayerReadyChanged += (playerId, isReady) => UpdatePlayerCard(playerId, isReady);
+DeskillzRooms.OnCountdownStarted += (seconds) => ShowCountdown(seconds);
+DeskillzRooms.OnCountdownTick += (seconds) => UpdateCountdown(seconds);
+DeskillzRooms.OnMatchLaunching += (data) => StartMatch(data);
+DeskillzRooms.OnChatReceived += (senderId, username, message) => ShowChatMessage(username, message);
+DeskillzRooms.OnKicked += (reason) => ShowKickedMessage(reason);
+DeskillzRooms.OnRoomCancelled += (reason) => ReturnToLobby();
+DeskillzRooms.OnRoomLeft += () => ReturnToLobby();
+```
+
+### Pre-Built Room UI
+
+The SDK includes ready-to-use UI components for private rooms:
+
+```csharp
+using Deskillz.UI.Rooms;
+
+// Show room browser (list of public rooms)
+PrivateRoomUI.Instance.ShowRoomList();
+
+// Show create room form
+PrivateRoomUI.Instance.ShowCreateRoom();
+
+// Show join by code dialog
+PrivateRoomUI.Instance.ShowJoinRoom();
+
+// Show with pre-filled code (e.g., from deep link or share)
+PrivateRoomUI.Instance.ShowJoinRoom("DSKZ-AB3C");
+
+// Show room lobby (waiting room)
+PrivateRoomUI.Instance.ShowRoomLobby();
+
+// Quick actions (create/join and auto-show lobby)
+PrivateRoomUI.Instance.QuickCreateRoom("My Room", 5.00m);
+PrivateRoomUI.Instance.QuickJoinRoom("DSKZ-AB3C");
+
+// Hide all room UI
+PrivateRoomUI.Instance.HideAll();
+
+// Close and remove from viewport
+PrivateRoomUI.Instance.Close();
+```
+
+### Room UI Components
+
+| Component | File | Description |
+|-----------|------|-------------|
+| **PrivateRoomUI** | `PrivateRoomUI.cs` | Main UI manager singleton, orchestrates all panels |
+| **RoomListUI** | `RoomListUI.cs` | Browse public rooms with search, filter, and sort |
+| **CreateRoomUI** | `CreateRoomUI.cs` | Room creation form with validation |
+| **JoinRoomUI** | `JoinRoomUI.cs` | Enter room code dialog with preview |
+| **RoomLobbyUI** | `RoomLobbyUI.cs` | Waiting room with player list, ready status, chat |
+| **RoomPlayerCard** | `RoomPlayerCard.cs` | Individual player card + UIComponents helper |
+
+All UI components are located in: `Runtime/UI/Rooms/`
+
+### Room UI Events
+
+```csharp
+// Subscribe to UI navigation events
+PrivateRoomUI.Instance.OnPanelShown += (room) => Debug.Log("Panel shown");
+PrivateRoomUI.Instance.OnRoomCreatedFromUI += (room) => Debug.Log($"Created: {room.RoomCode}");
+PrivateRoomUI.Instance.OnRoomJoinedFromUI += (room) => Debug.Log($"Joined: {room.Name}");
+PrivateRoomUI.Instance.OnAllHidden += () => Debug.Log("UI hidden");
+```
+
+---
+
 ## Navigation Deep Links (NEW in v2.0)
 
 The Deskillz platform can send navigation deep links to your game for seamless user experience.
@@ -254,7 +389,7 @@ The Deskillz platform can send navigation deep links to your game for seamless u
 | `deskillz://profile` | Profile | Show user profile |
 | `deskillz://game?id=xxx` | Game | Show specific game details |
 | `deskillz://settings` | Settings | Show settings screen |
-| `deskillz://launch?matchId=xxx&token=yyy` | Match Launch | Launch into a match |
+| `deskillz://launch?matchId=xxx` | Match | Start match |
 
 ### NavigationAction Enum
 
@@ -302,6 +437,10 @@ DeskillzEvents.OnMessageReceived += (msg) => HandleMessage(msg);
 // Deep Link Navigation (NEW in v2.0)
 DeepLinkHandler.OnNavigationReceived += HandleNavigation;
 DeepLinkHandler.OnMatchLaunchReceived += HandleMatchLaunch;
+
+// Private Room Events (NEW in v2.2)
+DeskillzRooms.OnRoomJoined += HandleRoomJoined;
+DeskillzRooms.OnMatchLaunching += HandleRoomMatchStart;
 ```
 
 ## Match Launch Deep Link Format
@@ -348,7 +487,7 @@ The SDK parses this automatically - you just handle the `OnMatchReady` or `OnMat
 | User Experience | Inconsistent | Consistent platform UI |
 | SDK Complexity | High (matchmaking logic) | Low (deep links only) |
 | Developer Burden | Heavy | Minimal |
-| Private Rooms | Complex to implement | Built into platform |
+| Private Rooms | Complex to implement | Built into platform + SDK |
 | NPC Opponents | SDK handles | Platform handles |
 | Navigation | N/A | Full deep link support |
 
@@ -358,6 +497,8 @@ The SDK parses this automatically - you just handle the `OnMatchReady` or `OnMat
 |---------|-------------|
 | **Navigation Deep Links** | Navigate to any screen from Deskillz app (NEW) |
 | **Match Launch Deep Links** | Receive match data from Global Lobby |
+| **Private Rooms** | Create/join rooms with friends (NEW in v2.2) |
+| **Pre-built Room UI** | Ready-to-use room management interface (NEW in v2.2) |
 | **Asynchronous Tournaments** | Players compete separately, scores compared |
 | **Real-time Multiplayer** | 2-10 players competing simultaneously |
 | **Custom Stages** | Player-created private rooms |
@@ -366,6 +507,55 @@ The SDK parses this automatically - you just handle the `OnMatchReady` or `OnMat
 | **Anti-Cheat** | Server-side validation and protection |
 | **Offline Support** | Automatic score caching and retry |
 | **Score Encryption** | HMAC-SHA256 signed submission |
+
+## SDK Structure
+
+```
+deskillz-unity-sdk/
+├── Runtime/
+│   ├── Core/
+│   │   ├── Deskillz.cs
+│   │   ├── DeskillzConfig.cs
+│   │   ├── DeskillzManager.cs
+│   │   ├── DeskillzEvents.cs
+│   │   ├── DeskillzModels.cs
+│   │   └── DeskillzNetwork.cs
+│   ├── Match/
+│   │   ├── MatchController.cs
+│   │   ├── MatchTimer.cs
+│   │   └── MatchStateMachine.cs
+│   ├── Security/
+│   │   ├── ScoreManager.cs
+│   │   ├── ScoreEncryption.cs
+│   │   └── ScoreValidator.cs
+│   ├── Rooms/                          # NEW in v2.2
+│   │   ├── DeskillzRooms.cs            # Main room API
+│   │   ├── RoomModels.cs               # Room data models
+│   │   ├── RoomApiClient.cs            # HTTP REST client
+│   │   └── RoomWebSocket.cs            # Real-time WebSocket
+│   ├── UI/
+│   │   ├── DeskillzUIManager.cs
+│   │   ├── UIPanel.cs
+│   │   └── Rooms/                      # NEW in v2.2
+│   │       ├── PrivateRoomUI.cs        # Main UI manager
+│   │       ├── RoomListUI.cs           # Browse public rooms
+│   │       ├── CreateRoomUI.cs         # Create room form
+│   │       ├── JoinRoomUI.cs           # Join by code dialog
+│   │       ├── RoomLobbyUI.cs          # Waiting room
+│   │       └── RoomPlayerCard.cs       # Player card component
+│   ├── Lobby/
+│   │   ├── DeepLinkHandler.cs
+│   │   ├── DeskillzBridge.cs
+│   │   └── DeskillzLobbyClient.cs
+│   ├── Multiplayer/
+│   │   └── SyncManager.cs
+│   └── NPC/
+│       └── NPCManager.cs
+├── Editor/
+│   └── DeskillzEditor.cs
+├── package.json
+└── README.md
+```
 
 ## iOS Setup
 
@@ -427,6 +617,10 @@ DeepLinkHandler.SimulateDeepLink("deskillz://wallet");
 
 // Test match launch
 DeepLinkHandler.SimulateDeepLink("deskillz://launch?matchId=test&token=test");
+
+// Test room UI (NEW in v2.2)
+PrivateRoomUI.Instance.ShowRoomList();
+PrivateRoomUI.Instance.ShowCreateRoom();
 ```
 
 ## Documentation
@@ -435,6 +629,7 @@ DeepLinkHandler.SimulateDeepLink("deskillz://launch?matchId=test&token=test");
 - [API Reference](https://docs.deskillz.games/unity/api)
 - [Multiplayer Guide](https://docs.deskillz.games/unity/multiplayer)
 - [Deep Link Integration](https://docs.deskillz.games/unity/deep-links)
+- [Private Rooms Guide](https://docs.deskillz.games/unity/private-rooms)
 - [Custom UI Guide](https://docs.deskillz.games/unity/custom-ui)
 - [Troubleshooting](https://docs.deskillz.games/unity/troubleshooting)
 
@@ -447,7 +642,20 @@ Check out our sample game implementation:
 
 See [CHANGELOG.md](./CHANGELOG.md) for version history.
 
-### v2.0.0 (Latest)
+### v2.2.0 (December 2024)
+- **NEW:** Private Rooms API (`DeskillzRooms`)
+- **NEW:** Pre-built Room UI (6 components)
+- **NEW:** Real-time WebSocket for rooms
+- **NEW:** Room events (join, leave, ready, chat, countdown)
+- Room list with search, filter, and sort
+- Room lobby with player cards and ready status
+- Host controls (start, cancel, kick)
+
+### v2.1.0 (December 2024)
+- Deep link improvements
+- Bug fixes and stability
+
+### v2.0.0 (December 2024)
 - **NEW:** Navigation deep links (`OnNavigationReceived`)
 - **NEW:** Simplified match launch (`OnMatchLaunchReceived`)
 - **NEW:** `SimulateDeepLink()` for testing
@@ -468,6 +676,12 @@ See [CHANGELOG.md](./CHANGELOG.md) for version history.
 2. Verify event subscriptions before processing
 3. Check `HasPendingDeepLink()` and call `ProcessPendingDeepLinks()`
 4. Test with `SimulateDeepLink()` first
+
+### Room UI not showing
+1. Ensure `DeskillzRooms.Initialize()` is called
+2. Check that UI prefabs are properly loaded
+3. Verify WebSocket connection is established
+4. Test with `PrivateRoomUI.Instance.ShowRoomList()`
 
 ### SDK Not Initializing
 ```csharp
