@@ -122,34 +122,28 @@ namespace Deskillz
         LowerIsBetter
     }
 
-    /// <summary>
-    /// Tournament entry fee currencies
+   /// <summary>
+    /// Tournament entry fee currencies (BSC and TRON networks only)
     /// </summary>
     public enum Currency
     {
         /// <summary>Free to play</summary>
         Free,
         
-        /// <summary>Bitcoin</summary>
-        BTC,
-        
-        /// <summary>Ethereum</summary>
-        ETH,
-        
-        /// <summary>Solana</summary>
-        SOL,
-        
-        /// <summary>Ripple</summary>
-        XRP,
-        
-        /// <summary>Binance Coin</summary>
+        /// <summary>BNB on BSC</summary>
         BNB,
         
-        /// <summary>Tether USD</summary>
-        USDT,
+        /// <summary>USDT on BSC (BEP-20)</summary>
+        USDT_BSC,
         
-        /// <summary>USD Coin</summary>
-        USDC
+        /// <summary>USDT on TRON (TRC-20)</summary>
+        USDT_TRON,
+        
+        /// <summary>USDC on BSC (BEP-20)</summary>
+        USDC_BSC,
+        
+        /// <summary>USDC on TRON (TRC-20)</summary>
+        USDC_TRON
     }
 
     /// <summary>
