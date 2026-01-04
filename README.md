@@ -9,9 +9,16 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/deskillz-games/unity-sdk/releases"><img src="https://img.shields.io/badge/version-2.3.0-blue.svg" alt="Version"></a>
+  <a href="https://unity.com"><img src="https://img.shields.io/badge/unity-2020.3+-black.svg" alt="Unity"></a>
+  <a href="https://github.com/deskillz-games/unity-sdk/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"></a>
+</p>
+
+<p align="center">
   <a href="#installation">Installation</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#features">Features</a> •
+  <a href="#auto-updater">Auto-Updater</a> •
   <a href="#private-rooms">Private Rooms</a> •
   <a href="#navigation-deep-links">Navigation Links</a> •
   <a href="#documentation">Documentation</a> •
@@ -114,6 +121,9 @@ public class GameManager : MonoBehaviour
         DeepLinkHandler.OnMatchLaunchReceived += HandleMatchLaunch;
         DeepLinkHandler.OnMatchReady += OnMatchReady;
         DeepLinkHandler.OnValidationFailed += OnValidationFailed;
+        
+        // Check for updates (NEW in v2.3)
+        DeskillzUpdater.Instance.CheckForUpdates();
         
         // Process any pending deep links (cold start)
         if (DeepLinkHandler.HasPendingDeepLink())
@@ -241,6 +251,200 @@ Deskillz.EndMatch();
 ```
 
 That's it for basic integration! The SDK handles everything else automatically.
+
+---
+
+## Auto-Updater (NEW in v2.3.0)
+
+The SDK includes automatic update checking to ensure players always have the latest version of your game. This integrates with the Deskillz APK Hosting system.
+
+### Basic Usage
+
+```csharp
+using Deskillz;
+
+void Start()
+{
+    // Auto-checks on startup by default
+    // Or check manually:
+    DeskillzUpdater.Instance.CheckForUpdates();
+}
+```
+
+### Custom UI with Events
+
+```csharp
+using Deskillz;
+
+public class UpdateManager : MonoBehaviour
+{
+    void Start()
+    {
+        // Configure version info
+        DeskillzUpdater updater = DeskillzUpdater.Instance;
+        updater.CurrentVersion = "1.0.0";
+        updater.CurrentVersionCode = 1;
+        
+        // Subscribe to events
+        DeskillzUpdater.OnUpdateCheckStarted += () => ShowLoadingSpinner();
+        DeskillzUpdater.OnUpdateAvailable += HandleOptionalUpdate;
+        DeskillzUpdater.OnForcedUpdateRequired += HandleForcedUpdate;
+        DeskillzUpdater.OnNoUpdateNeeded += HandleNoUpdate;
+        DeskillzUpdater.OnUpdateCheckFailed += HandleCheckFailed;
+        DeskillzUpdater.OnUpdateAccepted += HandleUpdateAccepted;
+        DeskillzUpdater.OnUpdateSkipped += HandleUpdateSkipped;
+        
+        updater.CheckForUpdates();
+    }
+    
+    void HandleOptionalUpdate(UpdateInfo info)
+    {
+        Debug.Log($"Optional update available: {info.LatestVersion}");
+        Debug.Log($"Download size: {info.FileSizeFormatted}");
+        Debug.Log($"Release notes: {info.ReleaseNotes}");
+        
+        // Show your custom dialog with Update/Skip buttons
+        ShowUpdateDialog(info, canSkip: true);
+    }
+    
+    void HandleForcedUpdate(UpdateInfo info)
+    {
+        Debug.Log($"REQUIRED update: {info.LatestVersion}");
+        
+        // Show dialog with only Update button (no skip)
+        ShowForcedUpdateDialog(info);
+        
+        // Pause the game - user must update
+        Time.timeScale = 0;
+    }
+    
+    void HandleNoUpdate()
+    {
+        Debug.Log("App is up to date!");
+        HideLoadingSpinner();
+        ShowMainMenu();
+    }
+    
+    void HandleCheckFailed(string error)
+    {
+        Debug.LogWarning($"Update check failed: {error}");
+        // Continue anyway - don't block users on network errors
+        HideLoadingSpinner();
+        ShowMainMenu();
+    }
+    
+    void HandleUpdateAccepted(UpdateInfo info)
+    {
+        Debug.Log($"User accepted update to {info.LatestVersion}");
+        // Analytics tracking, etc.
+    }
+    
+    void HandleUpdateSkipped(UpdateInfo info)
+    {
+        Debug.Log($"User skipped update {info.LatestVersion}");
+        ShowMainMenu();
+    }
+    
+    // Called from Update button in your UI
+    public void OnUpdateButtonClicked()
+    {
+        DeskillzUpdater.Instance.StartUpdate(); // Opens download URL in browser
+    }
+    
+    // Called from Skip button (optional updates only)
+    public void OnSkipButtonClicked()
+    {
+        DeskillzUpdater.Instance.SkipUpdate(); // Remembers skipped version
+    }
+}
+```
+
+### Built-in Update UI
+
+The SDK includes a pre-built update dialog you can use:
+
+```csharp
+using Deskillz;
+using Deskillz.UI;
+
+void Start()
+{
+    // Use the built-in UI (loads from Resources)
+    DeskillzUpdaterUI.Instance.ShowOnUpdateAvailable = true;
+    DeskillzUpdaterUI.Instance.ShowOnForcedUpdate = true;
+    
+    // Customize appearance
+    DeskillzUpdaterUI.Instance.SetTheme(UpdateUITheme.Dark);
+    
+    // Check for updates - UI shows automatically
+    DeskillzUpdater.Instance.CheckForUpdates();
+}
+```
+
+### Configuration Options
+
+```csharp
+DeskillzUpdater updater = DeskillzUpdater.Instance;
+
+// Version info (REQUIRED - must match your APK)
+updater.CurrentVersion = "1.0.0";           // versionName in build.gradle
+updater.CurrentVersionCode = 1;             // versionCode in build.gradle
+
+// Behavior settings
+updater.AutoCheckOnStart = true;            // Check automatically on app start
+updater.AutoCheckDelay = 2.0f;              // Delay before auto-check (seconds)
+updater.ShowOptionalUpdatePrompt = true;    // Show dialog for optional updates
+updater.AllowSkipOptionalUpdate = true;     // Allow users to skip optional updates
+updater.RememberSkippedVersion = true;      // Don't prompt again for skipped versions
+updater.SkipVersionExpireDays = 7;          // Re-prompt after N days even if skipped
+
+// Network settings
+updater.TimeoutSeconds = 30;                // API request timeout
+updater.RetryOnFailure = true;              // Retry on network errors
+updater.MaxRetries = 3;                     // Maximum retry attempts
+```
+
+### UpdateInfo Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `LatestVersion` | string | Version string (e.g., "1.2.0") |
+| `VersionCode` | int | Integer version code (e.g., 10200) |
+| `UpdateAvailable` | bool | Whether an update is available |
+| `IsForced` | bool | Whether update is required (can't skip) |
+| `DownloadUrl` | string | Direct APK download URL |
+| `FileSize` | long | File size in bytes |
+| `FileSizeFormatted` | string | Human-readable size (e.g., "52.4 MB") |
+| `ReleaseNotes` | string | Changelog/release notes text |
+| `MinOsVersion` | string | Minimum Android API level required |
+| `ReleasedAt` | DateTime | When this version was released |
+
+### Update Events
+
+| Event | Parameters | Description |
+|-------|------------|-------------|
+| `OnUpdateCheckStarted` | None | Update check has begun |
+| `OnUpdateCheckCompleted` | `result`, `UpdateInfo` | Check completed (success or fail) |
+| `OnUpdateAvailable` | `UpdateInfo` | Optional update is available |
+| `OnForcedUpdateRequired` | `UpdateInfo` | Required update - user must update |
+| `OnNoUpdateNeeded` | None | App is already up to date |
+| `OnUpdateCheckFailed` | `string error` | Network or parsing error |
+| `OnUpdateAccepted` | `UpdateInfo` | User clicked "Update" button |
+| `OnUpdateSkipped` | `UpdateInfo` | User clicked "Skip" button |
+
+### Version Code Best Practices
+
+```csharp
+// Recommended version code format: MAJOR * 10000 + MINOR * 100 + PATCH
+// Examples:
+// 1.0.0  → 10000
+// 1.2.0  → 10200
+// 1.2.3  → 10203
+// 2.0.0  → 20000
+
+// In Unity Player Settings → Android → Other Settings:
+// Bundle Version Code: 10000 (for v1.0.0)
+```
 
 ---
 
@@ -408,7 +612,7 @@ public enum NavigationAction
 ### Testing Navigation Links
 
 ```csharp
-// Simulate navigation deep links for testing
+// Test navigation deep links
 DeepLinkHandler.SimulateDeepLink("deskillz://tournaments");
 DeepLinkHandler.SimulateDeepLink("deskillz://wallet");
 DeepLinkHandler.SimulateDeepLink("deskillz://game?id=battle-blocks");
@@ -417,31 +621,7 @@ DeepLinkHandler.SimulateDeepLink("deskillz://game?id=battle-blocks");
 DeepLinkHandler.SimulateDeepLink("deskillz://launch?matchId=test-123&token=test-token");
 ```
 
-## Events
-
-Subscribe to SDK events for full control:
-
-```csharp
-// SDK ready
-DeskillzEvents.OnReady += () => Debug.Log("SDK Ready!");
-
-// Match lifecycle
-DeskillzEvents.OnMatchReady += (match) => LoadGame();
-DeskillzEvents.OnMatchStart += (match) => StartGameplay();
-DeskillzEvents.OnMatchComplete += (result) => ShowResults(result);
-
-// Real-time multiplayer
-DeskillzEvents.OnPlayerJoined += (player) => SpawnPlayer(player);
-DeskillzEvents.OnMessageReceived += (msg) => HandleMessage(msg);
-
-// Deep Link Navigation (NEW in v2.0)
-DeepLinkHandler.OnNavigationReceived += HandleNavigation;
-DeepLinkHandler.OnMatchLaunchReceived += HandleMatchLaunch;
-
-// Private Room Events (NEW in v2.2)
-DeskillzRooms.OnRoomJoined += HandleRoomJoined;
-DeskillzRooms.OnMatchLaunching += HandleRoomMatchStart;
-```
+---
 
 ## Match Launch Deep Link Format
 
@@ -495,18 +675,19 @@ The SDK parses this automatically - you just handle the `OnMatchReady` or `OnMat
 
 | Feature | Description |
 |---------|-------------|
-| **Navigation Deep Links** | Navigate to any screen from Deskillz app (NEW) |
-| **Match Launch Deep Links** | Receive match data from Global Lobby |
-| **Private Rooms** | Create/join rooms with friends (NEW in v2.2) |
-| **Pre-built Room UI** | Ready-to-use room management interface (NEW in v2.2) |
-| **Asynchronous Tournaments** | Players compete separately, scores compared |
-| **Real-time Multiplayer** | 2-10 players competing simultaneously |
-| **Custom Stages** | Player-created private rooms |
-| **Cryptocurrency Prizes** | BTC, ETH, SOL, XRP, BNB, USDT, USDC |
-| **Built-in UI** | Pre-made UI components with themes |
-| **Anti-Cheat** | Server-side validation and protection |
-| **Offline Support** | Automatic score caching and retry |
-| **Score Encryption** | HMAC-SHA256 signed submission |
+| 🔄 **Auto-Updater** | Automatic game updates with forced/optional prompts (NEW in v2.3) |
+| 🔗 **Navigation Deep Links** | Navigate to any screen from Deskillz app (NEW in v2.0) |
+| 🎮 **Match Launch Deep Links** | Receive match data from Global Lobby |
+| 🚪 **Private Rooms** | Create/join rooms with friends (NEW in v2.2) |
+| 🎨 **Pre-built Room UI** | Ready-to-use room management interface (NEW in v2.2) |
+| 🏆 **Asynchronous Tournaments** | Players compete separately, scores compared |
+| ⚡ **Real-time Multiplayer** | 2-10 players competing simultaneously |
+| 🎯 **Custom Stages** | Player-created private rooms |
+| 💰 **Cryptocurrency Prizes** | BTC, ETH, SOL, XRP, BNB, USDT, USDC |
+| 🎨 **Built-in UI** | Pre-made UI components with themes |
+| 🛡️ **Anti-Cheat** | Server-side validation and protection |
+| 📶 **Offline Support** | Automatic score caching and retry |
+| 🔐 **Score Encryption** | HMAC-SHA256 signed submission |
 
 ## SDK Structure
 
@@ -519,7 +700,9 @@ deskillz-unity-sdk/
 │   │   ├── DeskillzManager.cs
 │   │   ├── DeskillzEvents.cs
 │   │   ├── DeskillzModels.cs
-│   │   └── DeskillzNetwork.cs
+│   │   ├── DeskillzNetwork.cs
+│   │   ├── DeskillzUpdater.cs          # NEW in v2.3
+│   │   └── DeskillzUpdaterUI.cs        # NEW in v2.3
 │   ├── Match/
 │   │   ├── MatchController.cs
 │   │   ├── MatchTimer.cs
@@ -621,6 +804,9 @@ DeepLinkHandler.SimulateDeepLink("deskillz://launch?matchId=test&token=test");
 // Test room UI (NEW in v2.2)
 PrivateRoomUI.Instance.ShowRoomList();
 PrivateRoomUI.Instance.ShowCreateRoom();
+
+// Test auto-updater (NEW in v2.3)
+DeskillzUpdater.Instance.CheckForUpdates();
 ```
 
 ## Documentation
@@ -630,6 +816,7 @@ PrivateRoomUI.Instance.ShowCreateRoom();
 - [Multiplayer Guide](https://docs.deskillz.games/unity/multiplayer)
 - [Deep Link Integration](https://docs.deskillz.games/unity/deep-links)
 - [Private Rooms Guide](https://docs.deskillz.games/unity/private-rooms)
+- [Auto-Updater Guide](https://docs.deskillz.games/unity/updater)
 - [Custom UI Guide](https://docs.deskillz.games/unity/custom-ui)
 - [Troubleshooting](https://docs.deskillz.games/unity/troubleshooting)
 
@@ -641,6 +828,15 @@ Check out our sample game implementation:
 ## Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for version history.
+
+### v2.3.0 (January 2025)
+- **NEW:** Auto-Updater (`DeskillzUpdater`)
+- **NEW:** Built-in update UI (`DeskillzUpdaterUI`)
+- **NEW:** Forced vs optional update support
+- **NEW:** Remember skipped versions
+- **NEW:** Version comparison utilities
+- **NEW:** Update events and callbacks
+- APK hosting integration with Cloudflare R2
 
 ### v2.2.0 (December 2024)
 - **NEW:** Private Rooms API (`DeskillzRooms`)
@@ -683,6 +879,13 @@ See [CHANGELOG.md](./CHANGELOG.md) for version history.
 3. Verify WebSocket connection is established
 4. Test with `PrivateRoomUI.Instance.ShowRoomList()`
 
+### Auto-updater not checking
+1. Verify `CurrentVersion` and `CurrentVersionCode` are set correctly
+2. Check network connectivity
+3. Ensure Game ID is configured in DeskillzConfig
+4. Enable logging to see API responses
+5. Test manually: `DeskillzUpdater.Instance.CheckForUpdates()`
+
 ### SDK Not Initializing
 ```csharp
 // Check initialization status
@@ -713,7 +916,7 @@ if (!Deskillz.IsInitialized)
 
 ## License
 
-Copyright © 2024 Deskillz.Games. All rights reserved.
+Copyright © 2025 Deskillz.Games. All rights reserved.
 
 ---
 
