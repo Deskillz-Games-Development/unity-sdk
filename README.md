@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/deskillz-games/unity-sdk/releases"><img src="https://img.shields.io/badge/version-2.3.0-blue.svg" alt="Version"></a>
+  <a href="https://github.com/deskillz-games-development/unity-sdk/releases"><img src="https://img.shields.io/badge/version-2.3.0-blue.svg" alt="Version"></a>
   <a href="https://unity.com"><img src="https://img.shields.io/badge/unity-2020.3+-black.svg" alt="Unity"></a>
-  <a href="https://github.com/deskillz-games/unity-sdk/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"></a>
+  <a href="https://github.com/deskillz-games-development/unity-sdk/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"></a>
 </p>
 
 <p align="center">

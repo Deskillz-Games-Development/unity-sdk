@@ -531,41 +531,5 @@ namespace Deskillz
         }
     }
 
-    // =============================================================================
-    // SUPPORTING TYPES
-    // =============================================================================
-
-    /// <summary>
-    /// Match states in the pre-match room.
-    /// </summary>
-    public enum MatchState
-    {
-        Waiting,
-        ReadyCheck,
-        Countdown,
-        Launching,
-        InProgress,
-        Completed,
-        Cancelled
-    }
-
-    /// <summary>
-    /// Player presence information.
-    /// </summary>
-    [Serializable]
-    public class PlayerPresence
-    {
-        public string PlayerId;
-        public string Username;
-        public string AvatarUrl;
-        public int Rating;
-        public bool IsReady;
-        public bool IsNPC;
-        public DateTime JoinedAt;
-
-        /// <summary>
-        /// Whether this is the local player.
-        /// </summary>
-        public bool IsLocalPlayer => PlayerId == Deskillz.CurrentPlayer?.Id;
-    }
+    // NOTE: MatchState enum and PlayerPresence class are defined in DeskillzLobbyModels.cs
 }

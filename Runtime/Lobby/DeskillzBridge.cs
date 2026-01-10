@@ -220,6 +220,7 @@ namespace Deskillz
             _isInitialized = true;
 
             DeskillzLogger.Info("DeskillzBridge ready");
+
             OnReady?.Invoke();
 
             // Ensure deep link handler is active
@@ -527,48 +528,5 @@ namespace Deskillz
         }
     }
 
-    // =============================================================================
-    // MATCH INFO
-    // =============================================================================
-
-    /// <summary>
-    /// Information about the current match.
-    /// </summary>
-    [Serializable]
-    public class MatchInfo
-    {
-        public string MatchId;
-        public string TournamentId;
-        public string Token;
-        public MatchMode Mode;
-        public decimal EntryFee;
-        public decimal PrizePool;
-        public Currency Currency;
-        public int TimeLimitSeconds;
-        public int MaxPlayers;
-        public bool IsRealtime;
-        public bool IsTestMatch;
-        public System.Collections.Generic.Dictionary<string, string> CustomParams;
-
-        /// <summary>
-        /// Get a custom parameter value.
-        /// </summary>
-        public string GetCustomParam(string key, string defaultValue = null)
-        {
-            if (CustomParams != null && CustomParams.TryGetValue(key, out string value))
-            {
-                return value;
-            }
-            return defaultValue;
-        }
-
-        /// <summary>
-        /// Get a custom parameter as int.
-        /// </summary>
-        public int GetCustomParamInt(string key, int defaultValue = 0)
-        {
-            string value = GetCustomParam(key);
-            return int.TryParse(value, out int result) ? result : defaultValue;
-        }
-    }
+    // NOTE: MatchInfo class is defined in DeskillzLobbyModels.cs
 }

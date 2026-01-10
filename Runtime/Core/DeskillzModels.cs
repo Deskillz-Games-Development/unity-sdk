@@ -218,6 +218,9 @@ namespace Deskillz
         /// <summary>New level (if leveled up)</summary>
         public int NewLevel { get; set; }
 
+        /// <summary>Opponent's score (for 1v1 matches)</summary>
+        public int OpponentScore { get; set; }
+
         /// <summary>Whether local player won</summary>
         public bool IsWin => Outcome == MatchOutcome.Win;
         
@@ -299,182 +302,10 @@ namespace Deskillz
         }
     }
 
-    /// <summary>
-    /// Player in a custom stage waiting room
-    /// </summary>
-    [Serializable]
-    public class StagePlayer
-    {
-        /// <summary>Player ID</summary>
-        public string PlayerId { get; set; }
-        
-        /// <summary>Player username</summary>
-        public string Username { get; set; }
-        
-        /// <summary>Player avatar URL</summary>
-        public string AvatarUrl { get; set; }
-        
-        /// <summary>Whether player is ready</summary>
-        public bool IsReady { get; set; }
-        
-        /// <summary>Whether this player is the admin</summary>
-        public bool IsAdmin { get; set; }
-        
-        /// <summary>Whether this is the local player</summary>
-        public bool IsLocalPlayer { get; set; }
-        
-        /// <summary>When player joined the stage</summary>
-        public DateTime JoinedAt { get; set; }
-
-        public override string ToString()
-        {
-            return $"StagePlayer({PlayerId}, {Username}, Ready: {IsReady})";
-        }
-    }
-
-    /// <summary>
-    /// Configuration for creating a custom stage
-    /// </summary>
-    [Serializable]
-    public class StageConfig
-    {
-        /// <summary>Stage name</summary>
-        public string Name { get; set; } = "My Stage";
-        
-        /// <summary>Maximum players (2-10)</summary>
-        public int MaxPlayers { get; set; } = 2;
-        
-        /// <summary>Entry fee amount (0 = free)</summary>
-        public decimal EntryFee { get; set; } = 0m;
-        
-        /// <summary>Entry fee currency</summary>
-        public Currency Currency { get; set; } = Currency.Free;
-        
-        /// <summary>Number of rounds</summary>
-        public int Rounds { get; set; } = 1;
-        
-        /// <summary>Time limit per round in seconds (0 = no limit)</summary>
-        public int TimeLimitSeconds { get; set; } = 0;
-        
-        /// <summary>Stage visibility</summary>
-        public StageVisibility Visibility { get; set; } = StageVisibility.Private;
-        
-        /// <summary>Optional password for private stages</summary>
-        public string Password { get; set; }
-
-        /// <summary>Validates configuration values</summary>
-        public bool IsValid(out string error)
-        {
-            if (string.IsNullOrWhiteSpace(Name))
-            {
-                error = "Stage name is required";
-                return false;
-            }
-            if (MaxPlayers < 2 || MaxPlayers > 10)
-            {
-                error = "Max players must be between 2 and 10";
-                return false;
-            }
-            if (EntryFee < 0)
-            {
-                error = "Entry fee cannot be negative";
-                return false;
-            }
-            if (Rounds < 1 || Rounds > 10)
-            {
-                error = "Rounds must be between 1 and 10";
-                return false;
-            }
-            if (TimeLimitSeconds < 0)
-            {
-                error = "Time limit cannot be negative";
-                return false;
-            }
-            error = null;
-            return true;
-        }
-    }
-
-    /// <summary>
-    /// Network message for multiplayer communication
-    /// </summary>
-    [Serializable]
-    public class NetworkMessage
-    {
-        /// <summary>Message type</summary>
-        public MessageType Type { get; set; }
-        
-        /// <summary>Sender player ID</summary>
-        public string SenderId { get; set; }
-        
-        /// <summary>Target player ID (null = broadcast to all)</summary>
-        public string TargetId { get; set; }
-        
-        /// <summary>Message payload as JSON string</summary>
-        public string Payload { get; set; }
-        
-        /// <summary>Server timestamp</summary>
-        public long Timestamp { get; set; }
-        
-        /// <summary>Sequence number for ordering</summary>
-        public int Sequence { get; set; }
-
-        /// <summary>Deserialize payload to type T</summary>
-        public T GetPayload<T>()
-        {
-            if (string.IsNullOrEmpty(Payload)) return default;
-            return JsonUtility.FromJson<T>(Payload);
-        }
-
-        /// <summary>Create message with serialized payload</summary>
-        public static NetworkMessage Create<T>(MessageType type, T payload, string targetId = null)
-        {
-            return new NetworkMessage
-            {
-                Type = type,
-                Payload = JsonUtility.ToJson(payload),
-                TargetId = targetId,
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-            };
-        }
-    }
-
-    /// <summary>
-    /// Player state for synchronization in real-time matches
-    /// </summary>
-    [Serializable]
-    public class PlayerState
-    {
-        /// <summary>Player ID</summary>
-        public string PlayerId { get; set; }
-        
-        /// <summary>Current score</summary>
-        public int Score { get; set; }
-        
-        /// <summary>Custom state data as JSON</summary>
-        public string CustomData { get; set; }
-        
-        /// <summary>Last update timestamp</summary>
-        public long LastUpdated { get; set; }
-        
-        /// <summary>Sequence number for conflict resolution</summary>
-        public int Sequence { get; set; }
-
-        /// <summary>Get custom data as type T</summary>
-        public T GetCustomData<T>()
-        {
-            if (string.IsNullOrEmpty(CustomData)) return default;
-            return JsonUtility.FromJson<T>(CustomData);
-        }
-
-        /// <summary>Set custom data from object</summary>
-        public void SetCustomData<T>(T data)
-        {
-            CustomData = JsonUtility.ToJson(data);
-            LastUpdated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            Sequence++;
-        }
-    }
+    // NOTE: StagePlayer class is defined in StageRoom.cs
+    // NOTE: StageConfig class is defined in StageConfig.cs
+    // NOTE: NetworkMessage class is defined in NetworkMessage.cs
+    // NOTE: PlayerState class is defined in PlayerState.cs
 
     /// <summary>
     /// SDK error information

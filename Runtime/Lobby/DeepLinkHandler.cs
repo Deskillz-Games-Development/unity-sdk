@@ -7,6 +7,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Networking;
 
 namespace Deskillz
 {
@@ -57,7 +58,8 @@ namespace Deskillz
         /// Fired when app is opened without a deep link (normal launch).
         /// </summary>
         public static event Action OnNormalLaunch;
-       /// <summary>
+
+        /// <summary>
         /// Fired when a navigation deep link is received (not a match launch).
         /// </summary>
         public static event Action<NavigationAction, string> OnNavigationReceived;
@@ -78,6 +80,7 @@ namespace Deskillz
             Game,           // deskillz://game?id=xxx
             Settings        // deskillz://settings
         }
+
         // =============================================================================
         // STATE
         // =============================================================================
@@ -153,7 +156,7 @@ namespace Deskillz
             HandleDeepLink(initialDeepLink);
         }
 
-       /// <summary>
+        /// <summary>
         /// Handle an incoming deep link.
         /// </summary>
         private void HandleDeepLink(string url)
@@ -221,6 +224,7 @@ namespace Deskillz
                 OnDeepLinkError?.Invoke(ex.Message);
             }
         }
+
         /// <summary>
         /// Parse navigation deep links (tournaments, wallet, profile, etc.)
         /// Format: deskillz://tournaments OR deskillz://game?id=xxx
@@ -286,6 +290,7 @@ namespace Deskillz
                 return (NavigationAction.None, null);
             }
         }
+
         /// <summary>
         /// Parse deep link URL into MatchLaunchData.
         /// Expected format: deskillz-gamename://match?id=xxx&token=xxx&tournament=xxx&mode=sync
@@ -524,90 +529,5 @@ namespace Deskillz
         }
     }
 
-    // =============================================================================
-    // MATCH LAUNCH DATA
-    // =============================================================================
-
-    /// <summary>
-    /// Data received from a deep link when launching into a match from the lobby.
-    /// </summary>
-    [Serializable]
-    public class MatchLaunchData
-    {
-        /// <summary>
-        /// Raw deep link URL that was received.
-        /// </summary>
-        public string RawDeepLink;
-
-        /// <summary>
-        /// Unique match identifier.
-        /// </summary>
-        public string MatchId;
-
-        /// <summary>
-        /// Authentication token for this match session.
-        /// </summary>
-        public string Token;
-
-        /// <summary>
-        /// Tournament this match belongs to.
-        /// </summary>
-        public string TournamentId;
-
-        /// <summary>
-        /// Game identifier.
-        /// </summary>
-        public string GameId;
-
-        /// <summary>
-        /// Match mode (sync, async, stage).
-        /// </summary>
-        public MatchMode Mode = MatchMode.Asynchronous;
-
-        /// <summary>
-        /// Entry fee for the match.
-        /// </summary>
-        public decimal EntryFee;
-
-        /// <summary>
-        /// Prize pool for the match.
-        /// </summary>
-        public decimal PrizePool;
-
-        /// <summary>
-        /// Currency for entry fee and prizes.
-        /// </summary>
-        public Currency Currency = Currency.USDT;
-
-        /// <summary>
-        /// Time limit in seconds (0 = unlimited).
-        /// </summary>
-        public int TimeLimitSeconds;
-
-        /// <summary>
-        /// Maximum players in the match.
-        /// </summary>
-        public int MaxPlayers = 2;
-
-        /// <summary>
-        /// When the deep link was received.
-        /// </summary>
-        public DateTime ReceivedAt;
-
-        /// <summary>
-        /// Custom parameters passed via deep link.
-        /// </summary>
-        public Dictionary<string, string> CustomParams = new Dictionary<string, string>();
-
-        /// <summary>
-        /// Whether the token is still valid (not expired).
-        /// Tokens are typically valid for 5 minutes.
-        /// </summary>
-        public bool IsTokenValid => (DateTime.UtcNow - ReceivedAt).TotalMinutes < 5;
-
-        /// <summary>
-        /// Whether this is a real-time (synchronous) match.
-        /// </summary>
-        public bool IsRealtime => Mode == MatchMode.Synchronous;
-    }
+    // NOTE: MatchLaunchData class is defined in RoomModels.cs
 }
