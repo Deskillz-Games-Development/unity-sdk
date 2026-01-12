@@ -9,19 +9,22 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/deskillz-games-development/unity-sdk/releases"><img src="https://img.shields.io/badge/version-2.3.0-blue.svg" alt="Version"></a>
+  <a href="https://github.com/Deskillz-Games-Development/unity-sdk/releases"><img src="https://img.shields.io/badge/version-2.6.0-blue.svg" alt="Version"></a>
   <a href="https://unity.com"><img src="https://img.shields.io/badge/unity-2020.3+-black.svg" alt="Unity"></a>
-  <a href="https://github.com/deskillz-games-development/unity-sdk/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"></a>
+  <a href="https://github.com/Deskillz-Games-Development/unity-sdk/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"></a>
 </p>
 
 <p align="center">
-  <a href="#installation">Installation</a> •
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#features">Features</a> •
-  <a href="#auto-updater">Auto-Updater</a> •
-  <a href="#private-rooms">Private Rooms</a> •
-  <a href="#navigation-deep-links">Navigation Links</a> •
-  <a href="#documentation">Documentation</a> •
+  <a href="#installation">Installation</a> â€¢
+  <a href="#quick-start">Quick Start</a> â€¢
+  <a href="#features">Features</a> â€¢
+  <a href="#auto-updater">Auto-Updater</a> â€¢
+  <a href="#private-rooms">Private Rooms</a> â€¢
+  <a href="#host-system">Host System</a> â€¢
+  <a href="#social-games">Social Games</a> â€¢
+  <a href="#host-spectator-mode">Host Spectator Mode</a> [B]
+  <a href="#navigation-deep-links">Navigation Links</a> â€¢
+  <a href="#documentation">Documentation</a> â€¢
   <a href="#support">Support</a>
 </p>
 
@@ -29,32 +32,32 @@
 
 ## Overview
 
-The Deskillz Unity SDK enables game developers to integrate their Unity games with the Deskillz.Games competitive gaming platform. Players can compete in skill-based tournaments, create private rooms to play with friends, and win cryptocurrency prizes (BTC, ETH, SOL, XRP, BNB, USDT, USDC).
+The Deskillz Unity SDK enables game developers to integrate their Unity games with the Deskillz.Games competitive gaming platform. Players can compete in skill-based tournaments, create private rooms to play with friends, host social games with rake systems, and win cryptocurrency prizes (BTC, ETH, SOL, XRP, BNB, USDT, USDC).
 
 ### How It Works (Global Lobby Architecture)
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    PLAYER JOURNEY                               │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  1. Player opens Deskillz.Games website/app                     │
-│              ↓                                                  │
-│  2. Player browses Global Lobby                                 │
-│     • Select game                                               │
-│     • Choose tournament/match type                              │
-│     • Join matchmaking queue OR private room                    │
-│              ↓                                                  │
-│  3. Match found → Deep link sent to your game                   │
-│     deskillz://launch?matchId=abc123&token=xyz...               │
-│              ↓                                                  │
-│  4. Your game app opens via deep link                           │
-│              ↓                                                  │
-│  5. SDK receives match data → Start gameplay                    │
-│              ↓                                                  │
-│  6. Player plays → Score submitted → Results shown              │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+|                    PLAYER JOURNEY                                |
++------------------------------------------------------------------+
+|                                                                  |
+|  1. Player opens Deskillz.Games website/app                      |
+|              |                                                   |
+|  2. Player browses Global Lobby                                  |
+|     - Select game                                                |
+|     - Choose tournament/match type                               |
+|     - Join matchmaking queue OR private room                     |
+|              |                                                   |
+|  3. Match found -> Deep link sent to your game                   |
+|     deskillz://launch?matchId=abc123&token=xyz...                |
+|              |                                                   |
+|  4. Your game app opens via deep link                            |
+|              |                                                   |
+|  5. SDK receives match data -> Start gameplay                    |
+|              |                                                   |
+|  6. Player plays -> Score submitted -> Results shown             |
+|                                                                  |
++------------------------------------------------------------------+
 ```
 
 **Key Point:** Matchmaking happens in the Deskillz platform, NOT in your game. Your SDK just needs to:
@@ -73,25 +76,25 @@ The Deskillz Unity SDK enables game developers to integrate their Unity games wi
 
 ### Option 1: Unity Package Manager (Recommended)
 
-1. Open **Window → Package Manager**
-2. Click **+ → Add package from git URL**
-3. Enter: `https://github.com/deskillz/unity-sdk.git`
+1. Open **Window -> Package Manager**
+2. Click **+ -> Add package from git URL**
+3. Enter: `https://github.com/Deskillz-Games-Development/unity-sdk.git`
 
 ### Option 2: Download .unitypackage
 
-1. Download latest release from [deskillz.games/developer](https://deskillz.games/developer)
-2. Import via **Assets → Import Package → Custom Package**
+1. Download latest release from [GitHub Releases](https://github.com/Deskillz-Games-Development/unity-sdk/releases)
+2. Import via **Assets -> Import Package -> Custom Package**
 
 ### Option 3: Clone Repository
 
 ```bash
 cd YourProject/Packages
-git clone https://github.com/deskillz/unity-sdk.git com.deskillz.sdk
+git clone https://github.com/Deskillz-Games-Development/unity-sdk.git com.deskillz.sdk
 ```
 
 ### Setup
 
-1. Create config: **Assets → Create → Deskillz → Config**
+1. Create config: **Assets -> Create -> Deskillz -> Config**
 2. Enter your API Key and Game ID (get from [deskillz.games/developer](https://deskillz.games/developer))
 3. Place in `Resources` folder
 
@@ -240,296 +243,308 @@ void OnScoreSubmitted(bool success, string message)
 }
 ```
 
-### 5. Minimal Integration (2 Lines!)
+## Features
 
-```csharp
-using Deskillz;
-
-// When player finishes the game
-Deskillz.SubmitScore(playerScore);
-Deskillz.EndMatch();
-```
-
-That's it for basic integration! The SDK handles everything else automatically.
+| Feature | Description |
+|---------|-------------|
+| [TROPHY] **Tournaments** | Async and real-time competitive matches |
+| [COIN] **Crypto Prizes** | BTC, ETH, SOL, XRP, BNB, USDT, USDC |
+| [USERS] **Private Rooms** | Play with friends using room codes |
+| [HOST] **Host System** | 6-tier host program with revenue sharing (NEW v2.6) |
+| [CARDS] **Social Games** | Rake-based games with buy-ins (NEW v2.6) |
+| [EYE] **Host Spectator Mode** | Hosts monitor their social rooms (NEW v2.6) |
+| [LIGHTNING] **Real-time Sync** | Sub-100ms latency multiplayer |
+| [SHIELD] **Anti-Cheat** | Score encryption and validation |
+| [DOWNLOAD] **Auto-Updater** | Forced and optional app updates |
+| [ROBOT] **NPC Opponents** | AI players for off-peak hours |
+| [CHART] **Analytics** | Built-in telemetry and insights |
+| [OFFLINE] **Offline Support** | Automatic score caching and retry |
+| [LOCK] **Score Encryption** | HMAC-SHA256 signed submission |
 
 ---
 
-## Auto-Updater (NEW in v2.3.0)
+## Host System (NEW in v2.6)
 
-The SDK includes automatic update checking to ensure players always have the latest version of your game. This integrates with the Deskillz APK Hosting system.
+The Host System enables users to become verified hosts who can create and manage private rooms, earning revenue through the rake system.
 
-### Basic Usage
+### Host Tiers
+
+| Tier | Name | Revenue Share | Requirements |
+|------|------|---------------|--------------|
+| 0 | Starter | 50% | None |
+| 1 | Bronze | 55% | 10 rooms, $100 earned, 3.5 rating |
+| 2 | Silver | 60% | 50 rooms, $500 earned, 4.0 rating |
+| 3 | Gold | 65% | 150 rooms, $2,000 earned, 4.3 rating |
+| 4 | Platinum | 70% | 500 rooms, $10,000 earned, 4.5 rating |
+| 5 | Diamond | 75% | 1,000 rooms, $50,000 earned, 4.7 rating |
+
+### Host Manager Usage
 
 ```csharp
-using Deskillz;
+using Deskillz.Host;
 
-void Start()
+// Initialize Host Manager
+HostManager.Instance.Initialize(userId);
+
+// Register as a host
+var request = new HostRegistrationRequest
 {
-    // Auto-checks on startup by default
-    // Or check manually:
-    DeskillzUpdater.Instance.CheckForUpdates();
-}
-```
+    DisplayName = "ProHost",
+    Email = "host@example.com",
+    AcceptedTerms = true
+};
+HostManager.Instance.RegisterAsHost(request);
 
-### Custom UI with Events
-
-```csharp
-using Deskillz;
-
-public class UpdateManager : MonoBehaviour
+// Listen for events
+HostManager.Instance.OnHostRegistrationComplete += (success, error) =>
 {
-    void Start()
-    {
-        // Configure version info
-        DeskillzUpdater updater = DeskillzUpdater.Instance;
-        updater.CurrentVersion = "1.0.0";
-        updater.CurrentVersionCode = 1;
-        
-        // Subscribe to events
-        DeskillzUpdater.OnUpdateCheckStarted += () => ShowLoadingSpinner();
-        DeskillzUpdater.OnUpdateAvailable += HandleOptionalUpdate;
-        DeskillzUpdater.OnForcedUpdateRequired += HandleForcedUpdate;
-        DeskillzUpdater.OnNoUpdateNeeded += HandleNoUpdate;
-        DeskillzUpdater.OnUpdateCheckFailed += HandleCheckFailed;
-        DeskillzUpdater.OnUpdateAccepted += HandleUpdateAccepted;
-        DeskillzUpdater.OnUpdateSkipped += HandleUpdateSkipped;
-        
-        updater.CheckForUpdates();
-    }
-    
-    void HandleOptionalUpdate(UpdateInfo info)
-    {
-        Debug.Log($"Optional update available: {info.LatestVersion}");
-        Debug.Log($"Download size: {info.FileSizeFormatted}");
-        Debug.Log($"Release notes: {info.ReleaseNotes}");
-        
-        // Show your custom dialog with Update/Skip buttons
-        ShowUpdateDialog(info, canSkip: true);
-    }
-    
-    void HandleForcedUpdate(UpdateInfo info)
-    {
-        Debug.Log($"REQUIRED update: {info.LatestVersion}");
-        
-        // Show dialog with only Update button (no skip)
-        ShowForcedUpdateDialog(info);
-        
-        // Pause the game - user must update
-        Time.timeScale = 0;
-    }
-    
-    void HandleNoUpdate()
-    {
-        Debug.Log("App is up to date!");
-        HideLoadingSpinner();
-        ShowMainMenu();
-    }
-    
-    void HandleCheckFailed(string error)
-    {
-        Debug.LogWarning($"Update check failed: {error}");
-        // Continue anyway - don't block users on network errors
-        HideLoadingSpinner();
-        ShowMainMenu();
-    }
-    
-    void HandleUpdateAccepted(UpdateInfo info)
-    {
-        Debug.Log($"User accepted update to {info.LatestVersion}");
-        // Analytics tracking, etc.
-    }
-    
-    void HandleUpdateSkipped(UpdateInfo info)
-    {
-        Debug.Log($"User skipped update {info.LatestVersion}");
-        ShowMainMenu();
-    }
-    
-    // Called from Update button in your UI
-    public void OnUpdateButtonClicked()
-    {
-        DeskillzUpdater.Instance.StartUpdate(); // Opens download URL in browser
-    }
-    
-    // Called from Skip button (optional updates only)
-    public void OnSkipButtonClicked()
-    {
-        DeskillzUpdater.Instance.SkipUpdate(); // Remembers skipped version
-    }
-}
-```
+    if (success) Debug.Log("Registered as host!");
+};
 
-### Built-in Update UI
-
-The SDK includes a pre-built update dialog you can use:
-
-```csharp
-using Deskillz;
-using Deskillz.UI;
-
-void Start()
+HostManager.Instance.OnTierUpgraded += (oldTier, newTier) =>
 {
-    // Use the built-in UI (loads from Resources)
-    DeskillzUpdaterUI.Instance.ShowOnUpdateAvailable = true;
-    DeskillzUpdaterUI.Instance.ShowOnForcedUpdate = true;
-    
-    // Customize appearance
-    DeskillzUpdaterUI.Instance.SetTheme(UpdateUITheme.Dark);
-    
-    // Check for updates - UI shows automatically
-    DeskillzUpdater.Instance.CheckForUpdates();
-}
-```
+    Debug.Log($"Congratulations! Upgraded from {oldTier} to {newTier}!");
+};
 
-### Configuration Options
+// Create a room as host
+var roomRequest = new CreateRoomRequest
+{
+    RoomName = "Pro Poker Night",
+    GameId = "poker-texas-holdem",
+    MaxPlayers = 8,
+    MinBuyIn = 10f,
+    MaxBuyIn = 200f,
+    PointValue = 0.01f,
+    RakePercent = 5f,
+    RakeCap = 3f
+};
+HostManager.Instance.CreateRoom(roomRequest);
 
-```csharp
-DeskillzUpdater updater = DeskillzUpdater.Instance;
-
-// Version info (REQUIRED - must match your APK)
-updater.CurrentVersion = "1.0.0";           // versionName in build.gradle
-updater.CurrentVersionCode = 1;             // versionCode in build.gradle
-
-// Behavior settings
-updater.AutoCheckOnStart = true;            // Check automatically on app start
-updater.AutoCheckDelay = 2.0f;              // Delay before auto-check (seconds)
-updater.ShowOptionalUpdatePrompt = true;    // Show dialog for optional updates
-updater.AllowSkipOptionalUpdate = true;     // Allow users to skip optional updates
-updater.RememberSkippedVersion = true;      // Don't prompt again for skipped versions
-updater.SkipVersionExpireDays = 7;          // Re-prompt after N days even if skipped
-
-// Network settings
-updater.TimeoutSeconds = 30;                // API request timeout
-updater.RetryOnFailure = true;              // Retry on network errors
-updater.MaxRetries = 3;                     // Maximum retry attempts
-```
-
-### UpdateInfo Properties
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `LatestVersion` | string | Version string (e.g., "1.2.0") |
-| `VersionCode` | int | Integer version code (e.g., 10200) |
-| `UpdateAvailable` | bool | Whether an update is available |
-| `IsForced` | bool | Whether update is required (can't skip) |
-| `DownloadUrl` | string | Direct APK download URL |
-| `FileSize` | long | File size in bytes |
-| `FileSizeFormatted` | string | Human-readable size (e.g., "52.4 MB") |
-| `ReleaseNotes` | string | Changelog/release notes text |
-| `MinOsVersion` | string | Minimum Android API level required |
-| `ReleasedAt` | DateTime | When this version was released |
-
-### Update Events
-
-| Event | Parameters | Description |
-|-------|------------|-------------|
-| `OnUpdateCheckStarted` | None | Update check has begun |
-| `OnUpdateCheckCompleted` | `result`, `UpdateInfo` | Check completed (success or fail) |
-| `OnUpdateAvailable` | `UpdateInfo` | Optional update is available |
-| `OnForcedUpdateRequired` | `UpdateInfo` | Required update - user must update |
-| `OnNoUpdateNeeded` | None | App is already up to date |
-| `OnUpdateCheckFailed` | `string error` | Network or parsing error |
-| `OnUpdateAccepted` | `UpdateInfo` | User clicked "Update" button |
-| `OnUpdateSkipped` | `UpdateInfo` | User clicked "Skip" button |
-
-### Version Code Best Practices
-
-```csharp
-// Recommended version code format: MAJOR * 10000 + MINOR * 100 + PATCH
-// Examples:
-// 1.0.0  → 10000
-// 1.2.0  → 10200
-// 1.2.3  → 10203
-// 2.0.0  → 20000
-
-// In Unity Player Settings → Android → Other Settings:
-// Bundle Version Code: 10000 (for v1.0.0)
+// Check earnings
+HostManager.Instance.FetchEarnings(EarningsPeriod.Month);
+HostManager.Instance.OnEarningsUpdated += (earnings) =>
+{
+    Debug.Log($"Total: ${earnings.TotalEarnings}");
+    Debug.Log($"Rake: ${earnings.RakeEarnings}");
+    Debug.Log($"Available: ${earnings.AvailableBalance}");
+};
 ```
 
 ---
 
-## Private Rooms (NEW in v2.2.0)
+## Social Games (NEW in v2.6)
 
-Players can create private rooms to play with friends! The SDK includes a full Room API and pre-built UI components.
+Social games enable real-money gameplay with rake collection, buy-ins, rebuys, and cash-outs.
 
-### Room API
+### Social Game Manager Usage
+
+```csharp
+using Deskillz.Social;
+
+// Configure session
+var config = new SocialSessionConfig
+{
+    RoomId = "room-123",
+    GameId = "poker-texas-holdem",
+    HostId = "host-456",
+    PointValue = 0.01f,
+    RakePercent = 5f,
+    RakeCap = 3f,
+    MinBuyIn = 10f,
+    MaxBuyIn = 200f,
+    AllowRebuy = true,
+    RebuyPeriodRounds = 5
+};
+
+// Start session
+SocialGameManager.Instance.StartSession(config);
+
+// Add player with buy-in
+SocialGameManager.Instance.AddPlayer(playerId, buyInAmount);
+
+// Handle rebuys
+SocialGameManager.Instance.OnRebuyRequested += (playerId) =>
+{
+    // Show rebuy modal
+    RebuyModal.Show(playerId, config.MinBuyIn, config.MaxBuyIn);
+};
+
+// Process round results
+SocialGameManager.Instance.StartRound();
+// ... gameplay ...
+SocialGameManager.Instance.EndRound(winnerId, potAmount);
+
+// Cash out
+SocialGameManager.Instance.ProcessCashOut(playerId);
+```
+
+### Rake Calculator
+
+```csharp
+using Deskillz.Social;
+
+// Get rake breakdown
+var breakdown = RakeCalculator.Instance.GetRakeBreakdown(potAmount);
+Debug.Log($"Pot: ${breakdown.PotAmount}");
+Debug.Log($"Rake: ${breakdown.TotalRake}");
+Debug.Log($"Winner Payout: ${breakdown.WinnerPayout}");
+Debug.Log($"Host Share: ${breakdown.HostShare}");
+Debug.Log($"Platform Share: ${breakdown.PlatformShare}");
+
+// Estimate earnings
+float hostEarnings = RakeCalculator.Instance.EstimateHostEarnings(
+    expectedPotSize: 100f,
+    expectedHands: 50,
+    hostTier: 3
+);
+```
+
+### Buy-In Manager
+
+```csharp
+using Deskillz.Social;
+
+// Validate buy-in
+var validation = BuyInManager.Instance.GetValidationResult(
+    playerId, 
+    amount, 
+    isRebuy: false
+);
+
+if (validation.IsValid)
+{
+    Debug.Log($"Chips: {validation.ChipsReceived}");
+    BuyInManager.Instance.ProcessBuyIn(playerId, amount);
+}
+else
+{
+    Debug.LogError(validation.ErrorMessage);
+}
+
+// Get preset amounts
+float[] presets = BuyInManager.Instance.GetPresetBuyInAmounts();
+// Returns: [MinBuyIn, 100x, 200x, MaxBuyIn]
+```
+
+---
+
+## Host Spectator Mode (NEW in v2.6)
+
+Allow hosts to monitor their private social rooms without participating.
+
+> **Important:** This is a **host-only** feature. Only the creator of a private social room can spectate it. General public spectating is not available. Hosts can see the game board and scores but **NOT player hands** (anti-cheat protection).
+
+### Host Spectator Limitations
+
+| Can See | Cannot See |
+|---------|------------|
+| Game board/table state | Player hands/tiles |
+| Current scores/points | Hidden cards |
+| Player turn indicator | Private player info |
+| Chat messages | - |
+| Round results | - |
+
+### Host Spectator Manager Usage
+
+```csharp
+using Deskillz.Host;
+
+// Host must be authenticated first
+HostSpectatorManager.Instance.Initialize();
+
+// Fetch YOUR rooms available for spectating (host-only)
+HostSpectatorManager.Instance.FetchHostRooms(new HostRoomFilter
+{
+    GameCategory = GameCategory.Social, // Social rooms only
+    Status = RoomStatus.Active,
+    IsActive = true
+});
+
+HostSpectatorManager.Instance.OnRoomsFetched += (rooms) =>
+{
+    foreach (var room in rooms)
+    {
+        Debug.Log($"{room.RoomName}: {room.CurrentPlayers}/{room.MaxPlayers}");
+    }
+};
+
+// Spectate YOUR room (see board, NOT hands)
+HostSpectatorManager.Instance.SpectateRoom(roomId);
+
+// Switch between YOUR rooms (multi-room hosting)
+HostSpectatorManager.Instance.SwitchRoom(otherRoomId);
+
+// Stop spectating
+HostSpectatorManager.Instance.StopSpectating();
+
+// Listen for game events (board/scores only)
+HostSpectatorManager.Instance.OnGameStateUpdated += (state) => { };
+HostSpectatorManager.Instance.OnRoundEnded += (roundNumber, winnerId) => { };
+HostSpectatorManager.Instance.OnRoomSwitched += (newState) => { };
+```
+
+---
+
+## Private Rooms
+
+Create custom rooms for friends or public tournaments.
+
+### Room Creation
 
 ```csharp
 using Deskillz.Rooms;
 
-// Create a room
-DeskillzRooms.CreateRoom(new CreateRoomConfig
+// Create a private room
+var roomConfig = new RoomConfig
 {
-    Name = "My Room",
-    EntryFee = 5.00m,
-    EntryCurrency = "USDT",
-    MaxPlayers = 4,
-    MinPlayers = 2,
-    Mode = RoomMode.Sync,
-    Visibility = RoomVisibility.PublicListed
-},
-onSuccess: (room) => Debug.Log($"Room created: {room.RoomCode}"),
-onError: (error) => Debug.LogError(error.Message));
+    Name = "Friday Night Tournament",
+    GameId = "your-game-id",
+    MaxPlayers = 8,
+    EntryFee = 5.0f,
+    Currency = "USDT",
+    IsPrivate = true
+};
 
-// Quick create with defaults
-DeskillzRooms.QuickCreateRoom("Quick Match", 1.00m, OnSuccess, OnError);
+DeskillzRooms.CreateRoom(roomConfig, (room) =>
+{
+    Debug.Log($"Room created! Code: {room.RoomCode}");
+    // Share room.RoomCode with friends
+});
 
-// Join by code
-DeskillzRooms.JoinRoom("DSKZ-AB3C", OnSuccess, OnError);
+// Join via code
+DeskillzRooms.JoinRoomByCode("ABC123", OnRoomJoined);
 
 // Browse public rooms
-DeskillzRooms.GetPublicRooms(
-    onSuccess: (rooms) => { /* Display room list */ },
-    onError: (error) => { /* Handle error */ });
-
-// Get room by code (preview before joining)
-DeskillzRooms.GetRoomByCode("DSKZ-AB3C", OnSuccess, OnError);
-
-// Ready up
-DeskillzRooms.SetReady(true);
-
-// Send chat message
-DeskillzRooms.SendChat("Hello everyone!");
-
-// Leave room
-DeskillzRooms.LeaveRoom(OnSuccess, OnError);
-
-// Host: Cancel room
-DeskillzRooms.CancelRoom(OnSuccess, OnError);
-
-// Host: Kick player
-DeskillzRooms.KickPlayer(playerId, OnSuccess, OnError);
-
-// Host: Start match
-DeskillzRooms.StartMatch(OnSuccess, OnError);
+DeskillzRooms.GetPublicRooms(gameId, OnRoomsLoaded);
 ```
 
 ### Room Events
 
 ```csharp
 // Subscribe to room events
-DeskillzRooms.OnRoomJoined += (room) => Debug.Log($"Joined: {room.Name}");
-DeskillzRooms.OnRoomUpdated += (room) => UpdateRoomDisplay(room);
-DeskillzRooms.OnPlayerJoined += (player) => Debug.Log($"{player.Username} joined");
-DeskillzRooms.OnPlayerLeft += (playerId) => Debug.Log($"Player left");
-DeskillzRooms.OnPlayerReadyChanged += (playerId, isReady) => UpdatePlayerCard(playerId, isReady);
-DeskillzRooms.OnCountdownStarted += (seconds) => ShowCountdown(seconds);
-DeskillzRooms.OnCountdownTick += (seconds) => UpdateCountdown(seconds);
-DeskillzRooms.OnMatchLaunching += (data) => StartMatch(data);
-DeskillzRooms.OnChatReceived += (senderId, username, message) => ShowChatMessage(username, message);
-DeskillzRooms.OnKicked += (reason) => ShowKickedMessage(reason);
-DeskillzRooms.OnRoomCancelled += (reason) => ReturnToLobby();
-DeskillzRooms.OnRoomLeft += () => ReturnToLobby();
+DeskillzRooms.OnPlayerJoined += (player) => 
+{
+    Debug.Log($"{player.Name} joined the room");
+};
+
+DeskillzRooms.OnPlayerLeft += (playerId) => { };
+DeskillzRooms.OnPlayerReady += (playerId) => { };
+DeskillzRooms.OnCountdownStarted += (seconds) => { };
+DeskillzRooms.OnMatchStarting += (matchData) => { };
+DeskillzRooms.OnChatMessage += (playerId, message) => { };
+
+// Host controls
+DeskillzRooms.StartMatch();  // Host only
+DeskillzRooms.CancelRoom();  // Host only
+DeskillzRooms.KickPlayer(playerId);  // Host only
 ```
 
-### Pre-Built Room UI
-
-The SDK includes ready-to-use UI components for private rooms:
+### Pre-built Room UI
 
 ```csharp
 using Deskillz.UI.Rooms;
 
-// Show room browser (list of public rooms)
+// Show room browser
 PrivateRoomUI.Instance.ShowRoomList();
 
 // Show create room form
@@ -538,207 +553,165 @@ PrivateRoomUI.Instance.ShowCreateRoom();
 // Show join by code dialog
 PrivateRoomUI.Instance.ShowJoinRoom();
 
-// Show with pre-filled code (e.g., from deep link or share)
-PrivateRoomUI.Instance.ShowJoinRoom("DSKZ-AB3C");
-
-// Show room lobby (waiting room)
-PrivateRoomUI.Instance.ShowRoomLobby();
-
-// Quick actions (create/join and auto-show lobby)
-PrivateRoomUI.Instance.QuickCreateRoom("My Room", 5.00m);
-PrivateRoomUI.Instance.QuickJoinRoom("DSKZ-AB3C");
-
-// Hide all room UI
-PrivateRoomUI.Instance.HideAll();
-
-// Close and remove from viewport
-PrivateRoomUI.Instance.Close();
-```
-
-### Room UI Components
-
-| Component | File | Description |
-|-----------|------|-------------|
-| **PrivateRoomUI** | `PrivateRoomUI.cs` | Main UI manager singleton, orchestrates all panels |
-| **RoomListUI** | `RoomListUI.cs` | Browse public rooms with search, filter, and sort |
-| **CreateRoomUI** | `CreateRoomUI.cs` | Room creation form with validation |
-| **JoinRoomUI** | `JoinRoomUI.cs` | Enter room code dialog with preview |
-| **RoomLobbyUI** | `RoomLobbyUI.cs` | Waiting room with player list, ready status, chat |
-| **RoomPlayerCard** | `RoomPlayerCard.cs` | Individual player card + UIComponents helper |
-
-All UI components are located in: `Runtime/UI/Rooms/`
-
-### Room UI Events
-
-```csharp
-// Subscribe to UI navigation events
-PrivateRoomUI.Instance.OnPanelShown += (room) => Debug.Log("Panel shown");
-PrivateRoomUI.Instance.OnRoomCreatedFromUI += (room) => Debug.Log($"Created: {room.RoomCode}");
-PrivateRoomUI.Instance.OnRoomJoinedFromUI += (room) => Debug.Log($"Joined: {room.Name}");
-PrivateRoomUI.Instance.OnAllHidden += () => Debug.Log("UI hidden");
+// Customize theme
+PrivateRoomUI.Instance.SetTheme(new RoomUITheme
+{
+    PrimaryColor = Color.blue,
+    BackgroundColor = new Color(0.1f, 0.1f, 0.15f),
+    FontSize = 16
+});
 ```
 
 ---
 
-## Navigation Deep Links (NEW in v2.0)
+## Auto-Updater
 
-The Deskillz platform can send navigation deep links to your game for seamless user experience.
+Automatically check for and prompt app updates.
 
-### Supported Navigation Actions
+### Basic Setup
+
+```csharp
+using Deskillz;
+
+void Start()
+{
+    // Set current version
+    DeskillzUpdater.Instance.CurrentVersion = Application.version;
+    DeskillzUpdater.Instance.CurrentVersionCode = GetVersionCode();
+    
+    // Subscribe to events
+    DeskillzUpdater.OnUpdateAvailable += HandleOptionalUpdate;
+    DeskillzUpdater.OnForcedUpdateRequired += HandleForcedUpdate;
+    DeskillzUpdater.OnNoUpdateNeeded += () => Debug.Log("Up to date!");
+    
+    // Check for updates
+    DeskillzUpdater.Instance.CheckForUpdates();
+}
+
+void HandleOptionalUpdate(UpdateInfo info)
+{
+    Debug.Log($"Update available: {info.LatestVersion}");
+    Debug.Log($"Size: {info.FileSizeFormatted}");
+    // Show optional update dialog
+}
+
+void HandleForcedUpdate(UpdateInfo info)
+{
+    // Block app until user updates
+    DeskillzUpdaterUI.Instance.ShowForcedUpdateDialog(info);
+}
+```
+
+### Built-in Update UI
+
+```csharp
+// Automatic UI handling
+DeskillzUpdaterUI.Instance.ShowOnUpdateAvailable = true;
+DeskillzUpdaterUI.Instance.BlockOnForcedUpdate = true;
+DeskillzUpdater.Instance.CheckForUpdates();
+```
+
+---
+
+## Navigation Deep Links
+
+Handle platform navigation requests:
 
 | URL | Action | Description |
 |-----|--------|-------------|
 | `deskillz://tournaments` | Tournaments | Show tournament list |
-| `deskillz://wallet` | Wallet | Show wallet screen |
+| `deskillz://wallet` | Wallet | Show wallet/balance |
 | `deskillz://profile` | Profile | Show user profile |
-| `deskillz://game?id=xxx` | Game | Show specific game details |
-| `deskillz://settings` | Settings | Show settings screen |
-| `deskillz://launch?matchId=xxx` | Match | Start match |
-
-### NavigationAction Enum
-
-```csharp
-public enum NavigationAction
-{
-    None,
-    Tournaments,
-    Wallet,
-    Profile,
-    Game,
-    Settings
-}
-```
-
-### Testing Navigation Links
-
-```csharp
-// Test navigation deep links
-DeepLinkHandler.SimulateDeepLink("deskillz://tournaments");
-DeepLinkHandler.SimulateDeepLink("deskillz://wallet");
-DeepLinkHandler.SimulateDeepLink("deskillz://game?id=battle-blocks");
-
-// Test match launch
-DeepLinkHandler.SimulateDeepLink("deskillz://launch?matchId=test-123&token=test-token");
-```
+| `deskillz://settings` | Settings | Show settings |
+| `deskillz://game?id=X` | Game | Show specific game |
+| `deskillz://leaderboard?id=X` | Leaderboard | Show leaderboard |
 
 ---
-
-## Match Launch Deep Link Format
-
-Your game will receive match launch deep links in this format:
-
-```
-deskillz://launch?
-  matchId=<match_id>&
-  token=<auth_token>&
-  gameId=<game_id>&
-  mode=<SYNC|ASYNC>&
-  opponentId=<opponent_id>&
-  entryFee=<amount>&
-  currency=<BTC|ETH|USDT|etc>&
-  duration=<seconds>&
-  seed=<random_seed>
-```
-
-The SDK parses this automatically - you just handle the `OnMatchReady` or `OnMatchLaunchReceived` events.
-
-## MatchLaunchData Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `MatchId` | string | Unique match identifier |
-| `TournamentId` | string | Tournament this match belongs to |
-| `Token` | string | Authentication token for API calls |
-| `Duration` | int | Match duration in seconds |
-| `RandomSeed` | int | Seed for deterministic gameplay |
-| `EntryFee` | float | Entry fee amount |
-| `Currency` | string | Currency (BTC, ETH, USDT, etc.) |
-| `MatchType` | enum | Synchronous or Asynchronous |
-| `OpponentId` | string | Opponent player ID |
-| `OpponentName` | string | Opponent display name |
-| `OpponentRating` | int | Opponent skill rating |
-
-## Architecture: Global Lobby vs Old SDK-Based
-
-| Aspect | Old (SDK-Based) | New (Global Lobby) ✅ |
-|--------|-----------------|----------------------|
-| Matchmaking Location | Inside your game | Deskillz website/app |
-| Player Pool | Fragmented per-game | Unified across all games |
-| User Experience | Inconsistent | Consistent platform UI |
-| SDK Complexity | High (matchmaking logic) | Low (deep links only) |
-| Developer Burden | Heavy | Minimal |
-| Private Rooms | Complex to implement | Built into platform + SDK |
-| NPC Opponents | SDK handles | Platform handles |
-| Navigation | N/A | Full deep link support |
-
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| 🔄 **Auto-Updater** | Automatic game updates with forced/optional prompts (NEW in v2.3) |
-| 🔗 **Navigation Deep Links** | Navigate to any screen from Deskillz app (NEW in v2.0) |
-| 🎮 **Match Launch Deep Links** | Receive match data from Global Lobby |
-| 🚪 **Private Rooms** | Create/join rooms with friends (NEW in v2.2) |
-| 🎨 **Pre-built Room UI** | Ready-to-use room management interface (NEW in v2.2) |
-| 🏆 **Asynchronous Tournaments** | Players compete separately, scores compared |
-| ⚡ **Real-time Multiplayer** | 2-10 players competing simultaneously |
-| 🎯 **Custom Stages** | Player-created private rooms |
-| 💰 **Cryptocurrency Prizes** | BTC, ETH, SOL, XRP, BNB, USDT, USDC |
-| 🎨 **Built-in UI** | Pre-made UI components with themes |
-| 🛡️ **Anti-Cheat** | Server-side validation and protection |
-| 📶 **Offline Support** | Automatic score caching and retry |
-| 🔐 **Score Encryption** | HMAC-SHA256 signed submission |
 
 ## SDK Structure
 
 ```
 deskillz-unity-sdk/
-├── Runtime/
-│   ├── Core/
-│   │   ├── Deskillz.cs
-│   │   ├── DeskillzConfig.cs
-│   │   ├── DeskillzManager.cs
-│   │   ├── DeskillzEvents.cs
-│   │   ├── DeskillzModels.cs
-│   │   ├── DeskillzNetwork.cs
-│   │   ├── DeskillzUpdater.cs          # NEW in v2.3
-│   │   └── DeskillzUpdaterUI.cs        # NEW in v2.3
-│   ├── Match/
-│   │   ├── MatchController.cs
-│   │   ├── MatchTimer.cs
-│   │   └── MatchStateMachine.cs
-│   ├── Security/
-│   │   ├── ScoreManager.cs
-│   │   ├── ScoreEncryption.cs
-│   │   └── ScoreValidator.cs
-│   ├── Rooms/                          # NEW in v2.2
-│   │   ├── DeskillzRooms.cs            # Main room API
-│   │   ├── RoomModels.cs               # Room data models
-│   │   ├── RoomApiClient.cs            # HTTP REST client
-│   │   └── RoomWebSocket.cs            # Real-time WebSocket
-│   ├── UI/
-│   │   ├── DeskillzUIManager.cs
-│   │   ├── UIPanel.cs
-│   │   └── Rooms/                      # NEW in v2.2
-│   │       ├── PrivateRoomUI.cs        # Main UI manager
-│   │       ├── RoomListUI.cs           # Browse public rooms
-│   │       ├── CreateRoomUI.cs         # Create room form
-│   │       ├── JoinRoomUI.cs           # Join by code dialog
-│   │       ├── RoomLobbyUI.cs          # Waiting room
-│   │       └── RoomPlayerCard.cs       # Player card component
-│   ├── Lobby/
-│   │   ├── DeepLinkHandler.cs
-│   │   ├── DeskillzBridge.cs
-│   │   └── DeskillzLobbyClient.cs
-│   ├── Multiplayer/
-│   │   └── SyncManager.cs
-│   └── NPC/
-│       └── NPCManager.cs
-├── Editor/
-│   └── DeskillzEditor.cs
-├── package.json
-└── README.md
++-- Runtime/
+|   +-- Core/
+|   |   +-- Deskillz.cs
+|   |   +-- DeskillzConfig.cs
+|   |   +-- DeskillzManager.cs
+|   |   +-- DeskillzEvents.cs
+|   |   +-- DeskillzModels.cs
+|   |   +-- DeskillzNetwork.cs
+|   |   +-- DeskillzUpdater.cs
+|   |   +-- DeskillzUpdaterUI.cs
+|   +-- Match/
+|   |   +-- MatchController.cs
+|   |   +-- MatchTimer.cs
+|   |   +-- MatchStateMachine.cs
+|   +-- Security/
+|   |   +-- ScoreManager.cs
+|   |   +-- ScoreEncryption.cs
+|   |   +-- ScoreValidator.cs
+|   +-- Rooms/
+|   |   +-- DeskillzRooms.cs
+|   |   +-- RoomModels.cs
+|   |   +-- RoomApiClient.cs
+|   |   +-- RoomWebSocket.cs
+|   +-- Host/                              # NEW in v2.6
+|   |   +-- HostManager.cs                 # Host registration, tiers, rooms
+|   |   +-- HostModels.cs                  # Host data structures
+|   |   +-- HostApiClient.cs               # Host API integration
+|   |   +-- HostEvents.cs                  # Host event delegates
+|   +-- Social/                            # NEW in v2.6
+|   |   +-- SocialGameManager.cs           # Session management
+|   |   +-- RakeCalculator.cs              # Rake calculation
+|   |   +-- BuyInManager.cs                # Buy-in/rebuy/cashout
+|   |   +-- SocialModels.cs                # Social game data structures
+|   |   +-- SocialEvents.cs                # Social game events
+|   +-- Spectator/                         # NEW in v2.6 (Host-only)
+|   |   +-- HostSpectatorManager.cs        # Host spectator mode management
+|   |   +-- HostSpectatorModels.cs         # Host spectator data structures
+|   |   +-- HostSpectatorEvents.cs         # Host spectator events
+|   +-- UI/
+|   |   +-- DeskillzUIManager.cs
+|   |   +-- UIPanel.cs
+|   |   +-- Rooms/
+|   |   |   +-- PrivateRoomUI.cs
+|   |   |   +-- RoomListUI.cs
+|   |   |   +-- CreateRoomUI.cs
+|   |   |   +-- JoinRoomUI.cs
+|   |   |   +-- RoomLobbyUI.cs
+|   |   |   +-- RoomPlayerCard.cs
+|   |   +-- Host/                          # NEW in v2.6
+|   |   |   +-- HostDashboardUI.cs         # Main host dashboard
+|   |   |   +-- HostProfileCard.cs         # Host profile display
+|   |   |   +-- HostTierProgress.cs        # Tier progression UI
+|   |   |   +-- HostBadgeGrid.cs           # Achievement badges
+|   |   |   +-- HostEarningsChart.cs       # Earnings visualization
+|   |   +-- Social/                        # NEW in v2.6
+|   |   |   +-- BuyInModal.cs              # Buy-in dialog
+|   |   |   +-- RebuyModal.cs              # Rebuy dialog with timer
+|   |   |   +-- CashOutModal.cs            # Cash out confirmation
+|   |   |   +-- SocialGameSettings.cs      # Game configuration UI
+|   |   |   +-- TurnTimer.cs               # Turn countdown display
+|   |   |   +-- PauseRequestUI.cs          # Pause voting system
+|   |   +-- Spectator/                     # NEW in v2.6 (Host-only)
+|   |   |   +-- HostSpectatorView.cs       # Main host spectator interface
+|   |   |   +-- HostScorePanel.cs          # Live score display (no hands)
+|   |   |   +-- HostRoomSwitcher.cs        # Multi-room navigation
+|   +-- Lobby/
+|   |   +-- DeepLinkHandler.cs
+|   |   +-- DeskillzBridge.cs
+|   |   +-- DeskillzLobbyClient.cs
+|   +-- Multiplayer/
+|   |   +-- SyncManager.cs
+|   +-- NPC/
+|       +-- NPCManager.cs
++-- Editor/
+|   +-- DeskillzEditor.cs
++-- package.json
++-- README.md
 ```
+
+---
 
 ## iOS Setup
 
@@ -759,7 +732,7 @@ Add URL scheme to `Info.plist`:
 </array>
 ```
 
-In Unity, add to **Player Settings → iOS → Other Settings → Supported URL Schemes**.
+In Unity, add to **Player Settings -> iOS -> Other Settings -> Supported URL Schemes**.
 
 ## Android Setup
 
@@ -794,19 +767,31 @@ Deskillz.StartTestMatch(MatchMode.Asynchronous);
 // Simulate opponent score
 Deskillz.SimulateOpponentScore(1000);
 
-// Test navigation deep links (NEW)
+// Test navigation deep links
 DeepLinkHandler.SimulateDeepLink("deskillz://tournaments");
 DeepLinkHandler.SimulateDeepLink("deskillz://wallet");
 
 // Test match launch
 DeepLinkHandler.SimulateDeepLink("deskillz://launch?matchId=test&token=test");
 
-// Test room UI (NEW in v2.2)
+// Test room UI
 PrivateRoomUI.Instance.ShowRoomList();
 PrivateRoomUI.Instance.ShowCreateRoom();
 
-// Test auto-updater (NEW in v2.3)
+// Test auto-updater
 DeskillzUpdater.Instance.CheckForUpdates();
+
+// Test host system (NEW in v2.6)
+HostManager.Instance.Initialize("test-host-id");
+HostDashboardUI.Instance.Show();
+
+// Test social games (NEW in v2.6)
+SocialGameManager.Instance.StartTestSession();
+BuyInModal.Instance.Show(10f, 200f);
+
+// Test host spectator mode (NEW in v2.6) - Host-only feature
+HostSpectatorManager.Instance.FetchHostRooms(new HostRoomFilter());
+HostSpectatorView.Instance.Show();
 ```
 
 ## Documentation
@@ -816,6 +801,9 @@ DeskillzUpdater.Instance.CheckForUpdates();
 - [Multiplayer Guide](https://docs.deskillz.games/unity/multiplayer)
 - [Deep Link Integration](https://docs.deskillz.games/unity/deep-links)
 - [Private Rooms Guide](https://docs.deskillz.games/unity/private-rooms)
+- [Host System Guide](https://docs.deskillz.games/unity/host-system)
+- [Social Games Guide](https://docs.deskillz.games/unity/social-games)
+- [Host Spectator Mode Guide](https://docs.deskillz.games/unity/host-spectator)
 - [Auto-Updater Guide](https://docs.deskillz.games/unity/updater)
 - [Custom UI Guide](https://docs.deskillz.games/unity/custom-ui)
 - [Troubleshooting](https://docs.deskillz.games/unity/troubleshooting)
@@ -823,11 +811,36 @@ DeskillzUpdater.Instance.CheckForUpdates();
 ## Sample Project
 
 Check out our sample game implementation:
-[Deskillz Unity Sample](https://github.com/deskillz/unity-sample)
+[Deskillz Unity Sample](https://github.com/Deskillz-Games-Development/unity-sample)
 
 ## Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for version history.
+
+### v2.6.0 (January 2025)
+- **NEW:** Host System with 6-tier progression
+- **NEW:** HostManager for host registration and management
+- **NEW:** Host Dashboard UI components (5 files)
+- **NEW:** Social Game Manager for rake-based games
+- **NEW:** RakeCalculator with tiered rake structure
+- **NEW:** BuyInManager for buy-in/rebuy/cashout flows
+- **NEW:** Social Game UI components (6 files)
+- **NEW:** HostSpectatorManager for host room monitoring (host-only)
+- **NEW:** Host Spectator UI components (3 files)
+- **NEW:** 26 total new files for Private Room Enhancement
+- Revenue sharing system (50%-75% based on tier)
+- Real-time WebSocket updates for spectators
+- Pause/resume functionality for social games
+
+### v2.5.1 (January 2025)
+- Fixed duplicate class definitions
+- Fixed duplicate struct definitions
+- README URL corrections
+
+### v2.5.0 (January 2025)
+- Enhanced README documentation
+- SDK testing procedures
+- APK hosting improvements
 
 ### v2.3.0 (January 2025)
 - **NEW:** Auto-Updater (`DeskillzUpdater`)
@@ -886,6 +899,24 @@ See [CHANGELOG.md](./CHANGELOG.md) for version history.
 4. Enable logging to see API responses
 5. Test manually: `DeskillzUpdater.Instance.CheckForUpdates()`
 
+### Host system not initializing
+1. Ensure user is authenticated first
+2. Call `HostManager.Instance.Initialize(userId)`
+3. Check for registration errors in callbacks
+4. Verify API connectivity
+
+### Social game session errors
+1. Validate session config before starting
+2. Check buy-in amounts are within range
+3. Ensure all players have sufficient balance
+4. Monitor WebSocket connection status
+
+### Spectator mode not connecting
+1. Verify room exists and is active
+2. Check spectating is enabled for the room
+3. Ensure WebSocket connection is established
+4. Monitor for connection timeout errors
+
 ### SDK Not Initializing
 ```csharp
 // Check initialization status
@@ -913,13 +944,16 @@ if (!Deskillz.IsInitialized)
 - **Discord:** [discord.gg/deskillz](https://discord.gg/deskillz)
 - **Documentation:** [docs.deskillz.games](https://docs.deskillz.games)
 - **Developer Portal:** [deskillz.games/developer](https://deskillz.games/developer)
+- **GitHub Issues:** [github.com/Deskillz-Games-Development/unity-sdk/issues](https://github.com/Deskillz-Games-Development/unity-sdk/issues)
 
 ## License
 
-Copyright © 2025 Deskillz.Games. All rights reserved.
+Copyright (c) 2025 Deskillz.Games. All rights reserved.
+
+MIT License - see [LICENSE](https://github.com/Deskillz-Games-Development/unity-sdk/blob/main/LICENSE) for details.
 
 ---
 
 <p align="center">
-  Made with ❤️ by <a href="https://deskillz.games">Deskillz.Games</a>
+  Made with love by <a href="https://deskillz.games">Deskillz.Games</a>
 </p>
