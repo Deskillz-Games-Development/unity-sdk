@@ -15,16 +15,17 @@
 </p>
 
 <p align="center">
-  <a href="#installation">Installation</a> â€¢
-  <a href="#quick-start">Quick Start</a> â€¢
-  <a href="#features">Features</a> â€¢
-  <a href="#auto-updater">Auto-Updater</a> â€¢
-  <a href="#private-rooms">Private Rooms</a> â€¢
-  <a href="#host-system">Host System</a> â€¢
-  <a href="#social-games">Social Games</a> â€¢
-  <a href="#host-spectator-mode">Host Spectator Mode</a> [B]
-  <a href="#navigation-deep-links">Navigation Links</a> â€¢
-  <a href="#documentation">Documentation</a> â€¢
+  <a href="#getting-your-credentials">Get Credentials</a> |
+  <a href="#installation">Installation</a> |
+  <a href="#quick-start">Quick Start</a> |
+  <a href="#features">Features</a> |
+  <a href="#auto-updater">Auto-Updater</a> |
+  <a href="#private-rooms">Private Rooms</a> |
+  <a href="#host-system">Host System</a> |
+  <a href="#social-games">Social Games</a> |
+  <a href="#spectator-mode">Spectator Mode</a> |
+  <a href="#navigation-deep-links">Navigation Links</a> |
+  <a href="#documentation">Documentation</a> |
   <a href="#support">Support</a>
 </p>
 
@@ -71,6 +72,81 @@ The Deskillz Unity SDK enables game developers to integrate their Unity games wi
 - **Platforms:** iOS 12+, Android 5.0+ (API 21)
 - **.NET:** Standard 2.1
 - **Build Tools:** Xcode 14+ (iOS), Android SDK (Android)
+
+---
+
+## Getting Your Credentials
+
+**IMPORTANT: Start here before installation!**
+
+The SDK requires a Game ID and API Key to initialize. With our **Credentials-First Flow**, you can get these instantly.
+
+### Step 1: Access Developer Portal
+
+1. Go to [deskillz.games/developer](https://deskillz.games/developer)
+2. Connect your wallet or create an account
+3. Click **"Register New Game"**
+
+### Step 2: Generate Credentials Instantly
+
+1. Enter your **Game Name** (e.g., "Block Puzzle Master")
+2. Select your **Target Platform** (Android / iOS / Both)
+3. Click **"Generate Game ID & API Key"**
+
+### Step 3: You Receive Immediately
+
+| Credential | Example | Purpose |
+|------------|---------|---------|
+| **Game ID** | `a1b2c3d4-e5f6-7890-abcd-ef1234567890` | Unique identifier |
+| **API Key** | `dsk_live_abc123def456ghi789...` | Public key for SDK |
+| **API Secret** | `dss_xyz789abc456def123...` | Private key for HMAC signing |
+| **Deep Link Scheme** | `deskillz-blockpuzzlemaster` | Custom URL scheme |
+
+### CRITICAL: Save Your API Secret!
+
+> **WARNING:** Your API Secret is displayed **only once**. Copy it immediately and store it securely:
+> - Save it in a secure password manager
+> - Never commit it to source control
+> - You cannot retrieve it later - you would need to regenerate
+
+### Step 4: Create DeskillzConfig Asset
+
+1. In Unity: **Assets > Create > Deskillz > Config**
+2. Or create a ScriptableObject:
+
+```csharp
+// Assets/Resources/DeskillzConfig.asset
+[CreateAssetMenu(fileName = "DeskillzConfig", menuName = "Deskillz/Config")]
+public class DeskillzConfig : ScriptableObject
+{
+    [Header("Credentials (from Developer Portal)")]
+    public string GameId = "YOUR_GAME_ID";
+    public string ApiKey = "YOUR_API_KEY";
+    
+    [Header("Security (keep secure!)")]
+    public string ApiSecret = "YOUR_API_SECRET"; // For HMAC signing
+    
+    [Header("Settings")]
+    public string DeepLinkScheme = "deskillz-yourgame";
+    public DeskillzEnvironment Environment = DeskillzEnvironment.Sandbox;
+}
+```
+
+**Add to .gitignore:**
+```
+# Deskillz credentials - do not commit!
+Assets/Resources/DeskillzConfig.asset
+```
+
+### Step 5: Complete Registration (When Ready)
+
+After verifying your SDK integration works, return to Developer Portal to:
+1. Complete the full game submission form
+2. Upload screenshots, icon, and video
+3. Upload your APK/IPA build
+4. Submit for review
+
+---
 
 ## Installation
 
@@ -252,7 +328,7 @@ void OnScoreSubmitted(bool success, string message)
 | [USERS] **Private Rooms** | Play with friends using room codes |
 | [HOST] **Host System** | 6-tier host program with revenue sharing (NEW v2.6) |
 | [CARDS] **Social Games** | Rake-based games with buy-ins (NEW v2.6) |
-| [EYE] **Host Spectator Mode** | Hosts monitor their social rooms (NEW v2.6) |
+| [EYE] **Spectator Mode** | Watch live games in progress (NEW v2.6) |
 | [LIGHTNING] **Real-time Sync** | Sub-100ms latency multiplayer |
 | [SHIELD] **Anti-Cheat** | Score encryption and validation |
 | [DOWNLOAD] **Auto-Updater** | Forced and optional app updates |
@@ -428,59 +504,49 @@ float[] presets = BuyInManager.Instance.GetPresetBuyInAmounts();
 
 ---
 
-## Host Spectator Mode (NEW in v2.6)
+## Spectator Mode (NEW in v2.6)
 
-Allow hosts to monitor their private social rooms without participating.
+Allow users to watch live games in progress without participating.
 
-> **Important:** This is a **host-only** feature. Only the creator of a private social room can spectate it. General public spectating is not available. Hosts can see the game board and scores but **NOT player hands** (anti-cheat protection).
-
-### Host Spectator Limitations
-
-| Can See | Cannot See |
-|---------|------------|
-| Game board/table state | Player hands/tiles |
-| Current scores/points | Hidden cards |
-| Player turn indicator | Private player info |
-| Chat messages | - |
-| Round results | - |
-
-### Host Spectator Manager Usage
+### Spectator Manager Usage
 
 ```csharp
-using Deskillz.Host;
+using Deskillz.Spectator;
 
-// Host must be authenticated first
-HostSpectatorManager.Instance.Initialize();
-
-// Fetch YOUR rooms available for spectating (host-only)
-HostSpectatorManager.Instance.FetchHostRooms(new HostRoomFilter
+// Fetch available rooms to spectate
+SpectatorManager.Instance.FetchSpectatorRooms(new SpectatorRoomFilter
 {
-    GameCategory = GameCategory.Social, // Social rooms only
-    Status = RoomStatus.Active,
-    IsActive = true
+    GameId = "poker-texas-holdem",
+    MinPlayers = 2,
+    ActiveOnly = true
 });
 
-HostSpectatorManager.Instance.OnRoomsFetched += (rooms) =>
+SpectatorManager.Instance.OnRoomsFetched += (rooms) =>
 {
     foreach (var room in rooms)
     {
-        Debug.Log($"{room.RoomName}: {room.CurrentPlayers}/{room.MaxPlayers}");
+        Debug.Log($"{room.RoomName}: {room.CurrentPlayers}/{room.MaxPlayers} - Pot: ${room.CurrentPot}");
     }
 };
 
-// Spectate YOUR room (see board, NOT hands)
-HostSpectatorManager.Instance.SpectateRoom(roomId);
+// Join as spectator
+SpectatorManager.Instance.JoinAsSpectator(roomId);
 
-// Switch between YOUR rooms (multi-room hosting)
-HostSpectatorManager.Instance.SwitchRoom(otherRoomId);
+// View controls
+SpectatorManager.Instance.SetViewMode(SpectatorViewMode.FollowPlayer);
+SpectatorManager.Instance.FollowPlayer(playerId);
+SpectatorManager.Instance.CycleToNextPlayer();
 
-// Stop spectating
-HostSpectatorManager.Instance.StopSpectating();
+// Playback controls
+SpectatorManager.Instance.SetPlaybackSpeed(2.0f);
+SpectatorManager.Instance.PausePlayback();
+SpectatorManager.Instance.ResumePlayback();
 
-// Listen for game events (board/scores only)
-HostSpectatorManager.Instance.OnGameStateUpdated += (state) => { };
-HostSpectatorManager.Instance.OnRoundEnded += (roundNumber, winnerId) => { };
-HostSpectatorManager.Instance.OnRoomSwitched += (newState) => { };
+// Listen for game events
+SpectatorManager.Instance.OnRoundStarted += (roundNumber) => { };
+SpectatorManager.Instance.OnPlayerAction += (playerId, action, value) => { };
+SpectatorManager.Instance.OnPotUpdated += (potAmount) => { };
+SpectatorManager.Instance.OnRoundEnded += (roundNumber, winnerId) => { };
 ```
 
 ---
@@ -666,10 +732,10 @@ deskillz-unity-sdk/
 |   |   +-- BuyInManager.cs                # Buy-in/rebuy/cashout
 |   |   +-- SocialModels.cs                # Social game data structures
 |   |   +-- SocialEvents.cs                # Social game events
-|   +-- Spectator/                         # NEW in v2.6 (Host-only)
-|   |   +-- HostSpectatorManager.cs        # Host spectator mode management
-|   |   +-- HostSpectatorModels.cs         # Host spectator data structures
-|   |   +-- HostSpectatorEvents.cs         # Host spectator events
+|   +-- Spectator/                         # NEW in v2.6
+|   |   +-- SpectatorManager.cs            # Spectator mode management
+|   |   +-- SpectatorModels.cs             # Spectator data structures
+|   |   +-- SpectatorEvents.cs             # Spectator events
 |   +-- UI/
 |   |   +-- DeskillzUIManager.cs
 |   |   +-- UIPanel.cs
@@ -693,10 +759,10 @@ deskillz-unity-sdk/
 |   |   |   +-- SocialGameSettings.cs      # Game configuration UI
 |   |   |   +-- TurnTimer.cs               # Turn countdown display
 |   |   |   +-- PauseRequestUI.cs          # Pause voting system
-|   |   +-- Spectator/                     # NEW in v2.6 (Host-only)
-|   |   |   +-- HostSpectatorView.cs       # Main host spectator interface
-|   |   |   +-- HostScorePanel.cs          # Live score display (no hands)
-|   |   |   +-- HostRoomSwitcher.cs        # Multi-room navigation
+|   |   +-- Spectator/                     # NEW in v2.6
+|   |   |   +-- SpectatorView.cs           # Main spectator interface
+|   |   |   +-- SpectatorScorePanel.cs     # Live score display
+|   |   |   +-- RoomSwitcher.cs            # Room navigation
 |   +-- Lobby/
 |   |   +-- DeepLinkHandler.cs
 |   |   +-- DeskillzBridge.cs
@@ -789,9 +855,9 @@ HostDashboardUI.Instance.Show();
 SocialGameManager.Instance.StartTestSession();
 BuyInModal.Instance.Show(10f, 200f);
 
-// Test host spectator mode (NEW in v2.6) - Host-only feature
-HostSpectatorManager.Instance.FetchHostRooms(new HostRoomFilter());
-HostSpectatorView.Instance.Show();
+// Test spectator mode (NEW in v2.6)
+SpectatorManager.Instance.FetchSpectatorRooms(new SpectatorRoomFilter());
+SpectatorView.Instance.Show();
 ```
 
 ## Documentation
@@ -803,7 +869,7 @@ HostSpectatorView.Instance.Show();
 - [Private Rooms Guide](https://docs.deskillz.games/unity/private-rooms)
 - [Host System Guide](https://docs.deskillz.games/unity/host-system)
 - [Social Games Guide](https://docs.deskillz.games/unity/social-games)
-- [Host Spectator Mode Guide](https://docs.deskillz.games/unity/host-spectator)
+- [Spectator Mode Guide](https://docs.deskillz.games/unity/spectator)
 - [Auto-Updater Guide](https://docs.deskillz.games/unity/updater)
 - [Custom UI Guide](https://docs.deskillz.games/unity/custom-ui)
 - [Troubleshooting](https://docs.deskillz.games/unity/troubleshooting)
@@ -825,8 +891,8 @@ See [CHANGELOG.md](./CHANGELOG.md) for version history.
 - **NEW:** RakeCalculator with tiered rake structure
 - **NEW:** BuyInManager for buy-in/rebuy/cashout flows
 - **NEW:** Social Game UI components (6 files)
-- **NEW:** HostSpectatorManager for host room monitoring (host-only)
-- **NEW:** Host Spectator UI components (3 files)
+- **NEW:** SpectatorManager for live game viewing
+- **NEW:** Spectator UI components (3 files)
 - **NEW:** 26 total new files for Private Room Enhancement
 - Revenue sharing system (50%-75% based on tier)
 - Real-time WebSocket updates for spectators
