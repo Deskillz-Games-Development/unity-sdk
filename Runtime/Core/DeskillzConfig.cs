@@ -127,6 +127,83 @@ namespace Deskillz
         /// </summary>
         public bool EnableAntiCheat => _enableAntiCheat;
 
+ // =============================================================================
+        // SCENE CONFIGURATION (Self-Sufficient Architecture)
+        // =============================================================================
+
+        [Header("Scene Configuration")]
+        
+        [Tooltip("Authentication scene name")]
+        [SerializeField] private string _authSceneName = "DeskillzAuth";
+
+        [Tooltip("Main lobby/menu scene name")]
+        [SerializeField] private string _lobbySceneName = "DeskillzLobby";
+
+        [Tooltip("Gameplay scene name")]
+        [SerializeField] private string _gameSceneName = "Game";
+
+        [Tooltip("Loading/splash scene name")]
+        [SerializeField] private string _loadingSceneName = "Loading";
+
+        /// <summary>
+        /// Authentication scene name.
+        /// </summary>
+        public string AuthSceneName => _authSceneName;
+
+        /// <summary>
+        /// Main lobby scene name.
+        /// </summary>
+        public string LobbySceneName => _lobbySceneName;
+
+        /// <summary>
+        /// Gameplay scene name.
+        /// </summary>
+        public string GameSceneName => _gameSceneName;
+
+        /// <summary>
+        /// Loading scene name.
+        /// </summary>
+        public string LoadingSceneName => _loadingSceneName;
+
+        // =============================================================================
+        // AUTH CONFIGURATION (Self-Sufficient Architecture)
+        // =============================================================================
+
+        [Header("Authentication")]
+        
+        [Tooltip("Require authentication before accessing lobby")]
+        [SerializeField] private bool _requireAuth = true;
+
+        [Tooltip("Allow guest/anonymous play (practice mode only)")]
+        [SerializeField] private bool _allowGuestMode = true;
+
+        [Tooltip("Auto-login if session exists")]
+        [SerializeField] private bool _autoLogin = true;
+
+        [Tooltip("Remember me enabled by default")]
+        [SerializeField] private bool _rememberMeDefault = true;
+
+        /// <summary>
+        /// Whether authentication is required.
+        /// </summary>
+        public bool RequireAuth => _requireAuth;
+
+        /// <summary>
+        /// Whether guest mode is allowed.
+        /// </summary>
+        public bool AllowGuestMode => _allowGuestMode;
+
+        /// <summary>
+        /// Whether to auto-login on startup.
+        /// </summary>
+        public bool AutoLogin => _autoLogin;
+
+        /// <summary>
+        /// Default value for remember me checkbox.
+        /// </summary>
+        public bool RememberMeDefault => _rememberMeDefault;
+
+
         // =============================================================================
         // UI CONFIGURATION
         // =============================================================================
@@ -185,7 +262,7 @@ namespace Deskillz
         // URL ENDPOINTS
         // =============================================================================
 
-        /// <summary>
+       /// <summary>
         /// Base API URL for current environment.
         /// </summary>
         public string BaseUrl
@@ -198,6 +275,23 @@ namespace Deskillz
                     Environment.Sandbox => "https://sandbox-api.deskillz.games/api/v1",
                     Environment.Development => "http://localhost:3001/api/v1",
                     _ => "https://sandbox-api.deskillz.games/api/v1"
+                };
+            }
+        }
+
+        /// <summary>
+        /// Auth API URL (same base, different prefix for auth endpoints).
+        /// </summary>
+        public string AuthUrl
+        {
+            get
+            {
+                return _environment switch
+                {
+                    Environment.Production => "https://api.deskillz.games/api/v1/auth",
+                    Environment.Sandbox => "https://sandbox-api.deskillz.games/api/v1/auth",
+                    Environment.Development => "http://localhost:3001/api/v1/auth",
+                    _ => "https://sandbox-api.deskillz.games/api/v1/auth"
                 };
             }
         }

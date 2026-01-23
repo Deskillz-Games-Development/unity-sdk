@@ -82,7 +82,8 @@ namespace Deskillz
         private PlayerData _currentPlayer;
         private MatchData _currentMatch;
         private bool _isInitializing;
-
+        private AuthSceneController _authController;
+        private bool _isAuthInitialized;
         // =============================================================================
         // PROPERTIES
         // =============================================================================
@@ -122,6 +123,20 @@ namespace Deskillz
         /// </summary>
         internal DeskillzNetwork Network => _network;
 
+         /// <summary>
+        /// Auth scene controller.
+        /// </summary>
+        public AuthSceneController AuthController => _authController;
+
+        /// <summary>
+        /// Whether user is authenticated.
+        /// </summary>
+        public bool IsAuthenticated => DeskillzAuth.IsAuthenticated;
+
+        /// <summary>
+        /// Current authenticated user.
+        /// </summary>
+        public AuthUser CurrentUser => DeskillzAuth.CurrentUser;
         // =============================================================================
         // UNITY LIFECYCLE
         // =============================================================================
@@ -151,6 +166,9 @@ namespace Deskillz
 
             // Initialize cache
             DeskillzCache.Initialize();
+
+             // Initialize auth system (NEW)
+            InitializeAuth();
 
             // Check for auto-initialize
             if (_config.AutoInitialize)
@@ -213,6 +231,117 @@ namespace Deskillz
                 Shutdown();
                 _instance = null;
             }
+        }
+
+// -----------------------------------------------------------------------------
+// INSERT AFTER Awake method
+// Add new InitializeAuth method
+// -----------------------------------------------------------------------------
+
+        /// <summary>
+        /// Initialize the authentication system.
+        /// </summary>
+        private void InitializeAuth()
+        {
+            if (_isAuthInitialized) return;
+
+            DeskillzLogger.Debug("Initializing auth system...");
+
+            // Initialize DeskillzAuth
+            DeskillzAuth.Initialize();
+
+            // Subscribe to auth events
+            DeskillzAuth.OnLoginSuccess += HandleAuthLoginSuccess;
+            DeskillzAuth.OnLogout += HandleAuthLogout;
+            DeskillzAuth.OnAuthError += HandleAuthError;
+            DeskillzAuth.OnWalletConnected += HandleWalletConnected;
+            DeskillzAuth.OnWalletDisconnected += HandleWalletDisconnected;
+
+            // Get or create auth scene controller
+            _authController = AuthSceneController.Instance;
+
+            _isAuthInitialized = true;
+            DeskillzLogger.Debug("Auth system initialized");
+        }
+
+        /// <summary>
+        /// Handle successful login.
+        /// </summary>
+        private void HandleAuthLoginSuccess(AuthUser user)
+        {
+            DeskillzLogger.Info($"User logged in: {user.Username}");
+
+            // Update player data from auth user
+            _currentPlayer = new PlayerData
+            {
+                Id = user.Id,
+                Username = user.Username,
+                Email = user.Email,
+                AvatarUrl = user.AvatarUrl,
+                WalletAddress = user.WalletAddress,
+                HasWallet = user.HasWallet
+            };
+
+            DeskillzCache.CachePlayer(_currentPlayer);
+            DeskillzEvents.RaisePlayerUpdated(_currentPlayer);
+            DeskillzEvents.RaisePlayerAuthenticated(_currentPlayer);
+        }
+
+        /// <summary>
+        /// Handle logout.
+        /// </summary>
+        private void HandleAuthLogout()
+        {
+            DeskillzLogger.Info("User logged out");
+
+            _currentPlayer = null;
+            DeskillzCache.ClearSessionData();
+            DeskillzEvents.RaisePlayerSessionExpired();
+        }
+
+        /// <summary>
+        /// Handle auth error.
+        /// </summary>
+        private void HandleAuthError(string error)
+        {
+            DeskillzLogger.Error($"Auth error: {error}");
+            DeskillzEvents.RaiseError(new DeskillzError(ErrorCode.AuthenticationFailed, error));
+        }
+
+        /// <summary>
+        /// Handle wallet connected.
+        /// </summary>
+        private void HandleWalletConnected(string walletAddress)
+        {
+            DeskillzLogger.Info($"Wallet connected: {walletAddress}");
+
+            if (_currentPlayer != null)
+            {
+                _currentPlayer.WalletAddress = walletAddress;
+                _currentPlayer.HasWallet = true;
+                DeskillzCache.CachePlayer(_currentPlayer);
+                DeskillzEvents.RaisePlayerUpdated(_currentPlayer);
+            }
+
+            DeskillzEvents.RaiseWalletLinked(walletAddress);
+        }
+
+        /// <summary>
+        /// Handle wallet disconnected.
+        /// </summary>
+        private void HandleWalletDisconnected()
+        {
+            DeskillzLogger.Info("Wallet disconnected");
+
+            if (_currentPlayer != null)
+            {
+                _currentPlayer.WalletAddress = null;
+                _currentPlayer.HasWallet = false;
+                DeskillzCache.CachePlayer(_currentPlayer);
+                DeskillzEvents.RaisePlayerUpdated(_currentPlayer);
+            }
+
+            DeskillzEvents.RaiseWalletDisconnected();
         }
 
         // =============================================================================
@@ -591,6 +720,17 @@ namespace Deskillz
         {
             DeskillzLogger.Info("SDK shutting down...");
 
+             // Unsubscribe from auth events (NEW)
+            if (_isAuthInitialized)
+            {
+                DeskillzAuth.OnLoginSuccess -= HandleAuthLoginSuccess;
+                DeskillzAuth.OnLogout -= HandleAuthLogout;
+                DeskillzAuth.OnAuthError -= HandleAuthError;
+                DeskillzAuth.OnWalletConnected -= HandleWalletConnected;
+                DeskillzAuth.OnWalletDisconnected -= HandleWalletDisconnected;
+                _isAuthInitialized = false;
+            }
+
             // Disconnect network
             _network?.Dispose();
             _network = null;
@@ -624,6 +764,77 @@ namespace Deskillz
             {
                 Destroy(gameObject);
             }
+            // -----------------------------------------------------------------------------
+// INSERT new public methods for auth
+// Add after ForceShutdown method
+// -----------------------------------------------------------------------------
+
+        /// <summary>
+        /// Login with email and password.
+        /// </summary>
+        public void Login(string email, string password, bool rememberMe = false)
+        {
+            DeskillzAuth.Login(email, password, rememberMe);
+        }
+
+        /// <summary>
+        /// Sign up with email and password.
+        /// </summary>
+        public void SignUp(string email, string password, string username)
+        {
+            DeskillzAuth.SignUp(email, password, username);
+        }
+
+        /// <summary>
+        /// Login with social provider.
+        /// </summary>
+        public void SocialLogin(string provider, string idToken)
+        {
+            DeskillzAuth.SocialLogin(provider, idToken);
+        }
+
+        /// <summary>
+        /// Logout current user.
+        /// </summary>
+        public void Logout()
+        {
+            DeskillzAuth.Logout();
+        }
+
+        /// <summary>
+        /// Link wallet to current account.
+        /// </summary>
+        public void LinkWallet(string walletAddress, string signature, string message, string nonce)
+        {
+            DeskillzAuth.LinkWallet(walletAddress, signature, message, nonce);
+        }
+
+        /// <summary>
+        /// Disconnect wallet from current account.
+        /// </summary>
+        public void DisconnectWallet()
+        {
+            DeskillzAuth.DisconnectWallet();
+        }
+
+        /// <summary>
+        /// Request password reset.
+        /// </summary>
+        public void ForgotPassword(string email)
+        {
+            DeskillzAuth.ForgotPassword(email);
+        }
+
+        /// <summary>
+        /// Check if wallet is required for an action.
+        /// Returns true if action requires wallet and user doesn't have one.
+        /// </summary>
+        public bool RequireWallet(string reason = "This action requires a connected wallet")
+        {
+            return DeskillzAuth.RequireWallet(reason);
+        }
+
+
         }
     }
 }

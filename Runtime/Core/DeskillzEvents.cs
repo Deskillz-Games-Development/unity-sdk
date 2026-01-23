@@ -102,6 +102,65 @@ namespace Deskillz
         /// </summary>
         public static event Action OnPlayerSessionExpired;
 
+// =============================================================================
+        // AUTHENTICATION EVENTS (Self-Sufficient Architecture)
+        // =============================================================================
+
+        /// <summary>
+        /// Fired when user successfully logs in.
+        /// </summary>
+        public static event Action<AuthUser> OnAuthLoginSuccess;
+
+        /// <summary>
+        /// Fired when user successfully signs up.
+        /// </summary>
+        public static event Action<AuthUser> OnAuthSignUpSuccess;
+
+        /// <summary>
+        /// Fired when user logs out.
+        /// </summary>
+        public static event Action OnAuthLogout;
+
+        /// <summary>
+        /// Fired when authentication fails.
+        /// </summary>
+        public static event Action<string> OnAuthError;
+
+        /// <summary>
+        /// Fired when auth state changes.
+        /// </summary>
+        public static event Action<AuthState> OnAuthStateChanged;
+
+        /// <summary>
+        /// Fired when wallet is linked to account.
+        /// </summary>
+        public static event Action<string> OnWalletLinked;
+
+        /// <summary>
+        /// Fired when wallet is disconnected from account.
+        /// </summary>
+        public static event Action OnWalletDisconnected;
+
+        /// <summary>
+        /// Fired when password reset email is sent.
+        /// </summary>
+        public static event Action OnPasswordResetSent;
+
+        /// <summary>
+        /// Fired when auth flow is complete (login/signup done, ready for lobby).
+        /// </summary>
+        public static event Action<AuthUser> OnAuthFlowComplete;
+
+        /// <summary>
+        /// Fired when scene changes.
+        /// </summary>
+        public static event Action<string> OnSceneChanged;
+
+        /// <summary>
+        /// Fired when wallet is required for an action (e.g., paid tournament).
+        /// </summary>
+        public static event Action<string> OnWalletRequired;
+
         // =============================================================================
         // MATCH EVENTS
         // =============================================================================
@@ -735,6 +794,76 @@ namespace Deskillz
             SafeInvoke(OnReconnectionFailed, error);
         }
 
+ // =============================================================================
+        // RAISERS - AUTHENTICATION
+        // =============================================================================
+
+        internal static void RaiseAuthLoginSuccess(AuthUser user)
+        {
+            DeskillzLogger.LogEvent("Auth Login Success", user.Username);
+            SafeInvoke(OnAuthLoginSuccess, user);
+        }
+
+        internal static void RaiseAuthSignUpSuccess(AuthUser user)
+        {
+            DeskillzLogger.LogEvent("Auth SignUp Success", user.Username);
+            SafeInvoke(OnAuthSignUpSuccess, user);
+        }
+
+        internal static void RaiseAuthLogout()
+        {
+            DeskillzLogger.LogEvent("Auth Logout");
+            SafeInvoke(OnAuthLogout);
+        }
+
+        internal static void RaiseAuthError(string error)
+        {
+            DeskillzLogger.Error($"Auth Error: {error}");
+            SafeInvoke(OnAuthError, error);
+        }
+
+        internal static void RaiseAuthStateChanged(AuthState state)
+        {
+            DeskillzLogger.LogEvent("Auth State Changed", state.ToString());
+            SafeInvoke(OnAuthStateChanged, state);
+        }
+
+        internal static void RaiseWalletLinked(string walletAddress)
+        {
+            DeskillzLogger.LogEvent("Wallet Linked", walletAddress);
+            SafeInvoke(OnWalletLinked, walletAddress);
+        }
+
+        internal static void RaiseWalletDisconnected()
+        {
+            DeskillzLogger.LogEvent("Wallet Disconnected");
+            SafeInvoke(OnWalletDisconnected);
+        }
+
+        internal static void RaisePasswordResetSent()
+        {
+            DeskillzLogger.LogEvent("Password Reset Sent");
+            SafeInvoke(OnPasswordResetSent);
+        }
+
+        internal static void RaiseAuthFlowComplete(AuthUser user)
+        {
+            DeskillzLogger.LogEvent("Auth Flow Complete", user.Username);
+            SafeInvoke(OnAuthFlowComplete, user);
+        }
+
+        internal static void RaiseSceneChanged(string sceneName)
+        {
+            DeskillzLogger.LogEvent("Scene Changed", sceneName);
+            SafeInvoke(OnSceneChanged, sceneName);
+        }
+
+        internal static void RaiseWalletRequired(string reason)
+        {
+            DeskillzLogger.LogEvent("Wallet Required", reason);
+            SafeInvoke(OnWalletRequired, reason);
+        }
+
         // =============================================================================
         // RAISERS - ERROR
         // =============================================================================
@@ -813,6 +942,19 @@ namespace Deskillz
             OnDeepLinkReceived = null;
             OnNormalLaunch = null;
             OnDeepLinkError = null;
+
+             // Authentication (NEW)
+            OnAuthLoginSuccess = null;
+            OnAuthSignUpSuccess = null;
+            OnAuthLogout = null;
+            OnAuthError = null;
+            OnAuthStateChanged = null;
+            OnWalletLinked = null;
+            OnWalletDisconnected = null;
+            OnPasswordResetSent = null;
+            OnAuthFlowComplete = null;
+            OnSceneChanged = null;
+            OnWalletRequired = null;
 
             // Player
             OnPlayerUpdated = null;

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Deskillz-Games-Development/unity-sdk/releases"><img src="https://img.shields.io/badge/version-2.6.0-blue.svg" alt="Version"></a>
+  <a href="https://github.com/Deskillz-Games-Development/unity-sdk/releases"><img src="https://img.shields.io/badge/version-2.8.0-blue.svg" alt="Version"></a>
   <a href="https://unity.com"><img src="https://img.shields.io/badge/unity-2020.3+-black.svg" alt="Unity"></a>
   <a href="https://github.com/Deskillz-Games-Development/unity-sdk/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"></a>
 </p>
@@ -18,6 +18,7 @@
   <a href="#getting-your-credentials">Get Credentials</a> |
   <a href="#installation">Installation</a> |
   <a href="#quick-start">Quick Start</a> |
+  <a href="#self-sufficient-authentication">Self-Sufficient Auth</a> |
   <a href="#features">Features</a> |
   <a href="#auto-updater">Auto-Updater</a> |
   <a href="#private-rooms">Private Rooms</a> |
@@ -319,16 +320,169 @@ void OnScoreSubmitted(bool success, string message)
 }
 ```
 
+## Self-Sufficient Authentication (NEW in v2.8)
+
+**Your game can now be completely standalone!** Players can login, browse tournaments, and play matches entirely within your app - no external Deskillz app required.
+
+### Architecture Options
+
+| Mode | Description | Best For |
+|------|-------------|----------|
+| **Self-Sufficient** | All features built into your game | New games, better UX |
+| **Centralized Lobby** | Deskillz app handles lobby, your game handles gameplay | Existing integrations |
+
+### Self-Sufficient Setup
+
+```csharp
+using Deskillz;
+
+public class GameBootstrap : MonoBehaviour
+{
+    [SerializeField] private DeskillzConfig config;
+    
+    void Start()
+    {
+        // Configure SDK for self-sufficient mode
+        var sdkConfig = new DeskillzSDKConfig
+        {
+            GameId = config.GameId,
+            ApiKey = config.ApiKey,
+            SelfSufficientMode = true,  // Enable self-sufficient
+            Environment = config.UseSandbox 
+                ? DeskillzEnvironment.Sandbox 
+                : DeskillzEnvironment.Production
+        };
+        
+        DeskillzSDK.Instance.Initialize(sdkConfig);
+        DeskillzSDK.Instance.OnInitialized += OnSDKReady;
+    }
+    
+    void OnSDKReady()
+    {
+        // Initialize authentication
+        DeskillzAuth.Instance.Initialize();
+        
+        // Subscribe to auth events
+        DeskillzEvents.OnAuthLoginSuccess += OnLoginSuccess;
+        DeskillzEvents.OnAuthSignUpSuccess += OnSignUpSuccess;
+        DeskillzEvents.OnAuthLogout += OnLogout;
+        
+        // Initialize scene controller
+        AuthSceneController.Instance.Initialize(config);
+        
+        // Navigate based on auth state
+        if (DeskillzAuth.Instance.IsAuthenticated)
+        {
+            AuthSceneController.Instance.GoToLobby();
+        }
+        else
+        {
+            AuthSceneController.Instance.GoToAuth();
+        }
+    }
+    
+    void OnLoginSuccess(AuthUser user)
+    {
+        Debug.Log($"Welcome back, {user.Username}!");
+        AuthSceneController.Instance.GoToLobby();
+    }
+    
+    void OnSignUpSuccess(AuthUser user)
+    {
+        Debug.Log($"Account created: {user.Username}");
+        AuthSceneController.Instance.GoToLobby();
+    }
+    
+    void OnLogout()
+    {
+        AuthSceneController.Instance.GoToAuth();
+    }
+}
+```
+
+### Login with Email/Password
+
+```csharp
+public class LoginUI : MonoBehaviour
+{
+    [SerializeField] private InputField emailInput;
+    [SerializeField] private InputField passwordInput;
+    [SerializeField] private Button loginButton;
+    
+    void Start()
+    {
+        loginButton.onClick.AddListener(OnLoginClick);
+    }
+    
+    void OnLoginClick()
+    {
+        string email = emailInput.text.Trim();
+        string password = passwordInput.text;
+        
+        DeskillzAuth.Instance.LoginWithEmail(email, password, true);
+    }
+}
+```
+
+### Social Login
+
+```csharp
+// Google Sign-In
+DeskillzAuth.Instance.SocialLogin(SocialProvider.Google);
+
+// Apple Sign-In (iOS only)
+DeskillzAuth.Instance.SocialLogin(SocialProvider.Apple);
+
+// Facebook Login
+DeskillzAuth.Instance.SocialLogin(SocialProvider.Facebook);
+```
+
+### Optional Wallet Connection
+
+Wallet is optional in self-sufficient mode - only needed for paid tournaments.
+
+```csharp
+// Connect wallet (optional - for paid tournaments)
+DeskillzAuth.Instance.ConnectWallet();
+
+// Listen for wallet events
+DeskillzEvents.OnWalletLinked += (address) => {
+    Debug.Log($"Wallet linked: {address}");
+};
+```
+
+### Scene Configuration
+
+Configure your scenes in DeskillzConfig:
+
+```csharp
+[CreateAssetMenu(fileName = "DeskillzConfig", menuName = "Deskillz/Config")]
+public class DeskillzConfig : ScriptableObject
+{
+    // ... existing fields ...
+    
+    [Header("Self-Sufficient Architecture (NEW in v2.8)")]
+    public bool SelfSufficientMode = true;
+    public string AuthSceneName = "AuthScene";
+    public string LobbySceneName = "LobbyScene";
+    public string GameSceneName = "GameScene";
+    public string LoadingSceneName = "LoadingScene";
+}
+```
+
+---
+
 ## Features
 
 | Feature | Description |
 |---------|-------------|
+| [KEY] **Self-Sufficient Auth** | Email/password and social login in-game (NEW v2.8) |
 | [TROPHY] **Tournaments** | Async and real-time competitive matches |
 | [COIN] **Crypto Prizes** | BTC, ETH, SOL, XRP, BNB, USDT, USDC |
 | [USERS] **Private Rooms** | Play with friends using room codes |
-| [HOST] **Host System** | 6-tier host program with revenue sharing (NEW v2.6) |
-| [CARDS] **Social Games** | Rake-based games with buy-ins (NEW v2.6) |
-| [EYE] **Spectator Mode** | Watch live games in progress (NEW v2.6) |
+| [HOST] **Host System** | 6-tier host program with revenue sharing |
+| [CARDS] **Social Games** | Rake-based games with buy-ins |
+| [EYE] **Spectator Mode** | Watch live games in progress |
 | [LIGHTNING] **Real-time Sync** | Sub-100ms latency multiplayer |
 | [SHIELD] **Anti-Cheat** | Score encryption and validation |
 | [DOWNLOAD] **Auto-Updater** | Forced and optional app updates |
@@ -883,6 +1037,24 @@ Check out our sample game implementation:
 
 See [CHANGELOG.md](./CHANGELOG.md) for version history.
 
+### v2.8.0 (January 2026)
+- **NEW:** Self-Sufficient Authentication (`DeskillzAuth`)
+- **NEW:** Scene Flow Controller (`AuthSceneController`)
+- **NEW:** Email/password login and registration
+- **NEW:** Social login (Google, Apple, Facebook)
+- **NEW:** Optional wallet connection (for paid tournaments)
+- **NEW:** Auth events (OnAuthLoginSuccess, OnAuthSignUpSuccess, OnAuthLogout, OnAuthError)
+- **NEW:** Wallet events (OnWalletLinked, OnWalletDisconnected)
+- **NEW:** Scene configuration in DeskillzConfig
+- **NEW:** Token persistence and auto-refresh
+- Games can now be completely standalone - no external app required
+
+### v2.7.0 (January 2026)
+- **NEW:** Self-Sufficient Architecture foundation
+- **NEW:** In-game lobby support
+- **NEW:** Scene navigation system
+- Architecture options: Self-Sufficient vs Centralized Lobby
+
 ### v2.6.0 (January 2025)
 - **NEW:** Host System with 6-tier progression
 - **NEW:** HostManager for host registration and management
@@ -965,6 +1137,13 @@ See [CHANGELOG.md](./CHANGELOG.md) for version history.
 4. Enable logging to see API responses
 5. Test manually: `DeskillzUpdater.Instance.CheckForUpdates()`
 
+### Self-Sufficient Auth not working
+1. Verify `SelfSufficientMode = true` in DeskillzConfig
+2. Check API base URL is correct
+3. Ensure `DeskillzAuth.Instance.Initialize()` is called
+4. Subscribe to `OnAuthError` events to see error details
+5. Verify email/password meet requirements (8+ chars)
+
 ### Host system not initializing
 1. Ensure user is authenticated first
 2. Call `HostManager.Instance.Initialize(userId)`
@@ -1003,6 +1182,21 @@ if (!Deskillz.IsInitialized)
 - Check Min SDK is 21+
 - Verify Gradle version compatibility
 - Check for duplicate AndroidManifest entries
+
+## Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 2.8.0 | Jan 2026 | Self-Sufficient Authentication (DeskillzAuth, AuthSceneController), email/password login, social login, optional wallet |
+| 2.7.0 | Jan 2026 | Self-Sufficient Architecture introduction |
+| 2.6.0 | Jan 2026 | Host System, Social Games, Spectator Mode |
+| 2.5.0 | Jan 2025 | Auto-Updater (DeskillzUpdater, DeskillzUpdaterUI) |
+| 2.2.0 | Dec 2024 | Private Rooms (DeskillzRooms, PrivateRoomUI) |
+| 2.1.0 | Dec 2024 | Navigation deep links |
+| 2.0.0 | Nov 2024 | Centralized lobby architecture |
+| 1.x | Legacy | SDK-based matchmaking (deprecated) |
+
+---
 
 ## Support
 
