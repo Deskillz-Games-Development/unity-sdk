@@ -1,44 +1,83 @@
 // =============================================================================
 // Deskillz SDK for Unity
-// Copyright (c) 2024 Deskillz.Games. All rights reserved.
+// Copyright (c) 2024-2026 Deskillz.Games. All rights reserved.
+// Version: 2.7.0 (Self-Sufficient Architecture)
+// =============================================================================
+//
+// MERGED: Includes all enums from main SDK + StackIt SDK
+// This file replaces both DeskillzEnums.cs and StackItDeskillzModels.cs enums
+//
 // =============================================================================
 
 namespace Deskillz
 {
+    // =========================================================================
+    // SDK STATE
+    // =========================================================================
+
     /// <summary>
     /// SDK initialization state
     /// </summary>
     public enum SDKState
     {
-        /// <summary>SDK has not been initialized</summary>
         Uninitialized,
-        
-        /// <summary>SDK is currently initializing</summary>
         Initializing,
-        
-        /// <summary>SDK is ready to use</summary>
         Ready,
-        
-        /// <summary>SDK initialization failed</summary>
         Failed,
-        
-        /// <summary>SDK is in test/sandbox mode</summary>
         TestMode
     }
+
+    // =========================================================================
+    // AUTHENTICATION
+    // =========================================================================
+
+    /// <summary>
+    /// Authentication state for self-sufficient architecture
+    /// </summary>
+    public enum AuthState
+    {
+        NotAuthenticated,
+        Authenticating,
+        Authenticated,
+        Error
+    }
+
+    /// <summary>
+    /// Authentication provider types
+    /// </summary>
+    public enum AuthProvider
+    {
+        Email,
+        Google,
+        Apple,
+        Facebook,
+        Guest,
+        Wallet
+    }
+
+    // =========================================================================
+    // MATCH & GAMEPLAY
+    // =========================================================================
 
     /// <summary>
     /// Match gameplay modes
     /// </summary>
     public enum MatchMode
     {
-        /// <summary>Players play separately, scores compared after deadline</summary>
         Asynchronous,
-        
-        /// <summary>Real-time multiplayer, all players in same session</summary>
         Synchronous,
-        
-        /// <summary>Private room created by a player with custom rules</summary>
         CustomStage
+    }
+
+    /// <summary>
+    /// Match type classification
+    /// </summary>
+    public enum MatchType
+    {
+        Asynchronous,
+        Synchronous,
+        Practice,
+        PrivateRoom
     }
 
     /// <summary>
@@ -46,104 +85,15 @@ namespace Deskillz
     /// </summary>
     public enum MatchStatus
     {
-        /// <summary>No active match</summary>
         None,
-        
-        /// <summary>Waiting for match to start</summary>
         Pending,
-        
-        /// <summary>Countdown before match begins</summary>
         Countdown,
-        
-        /// <summary>Match is actively being played</summary>
         InProgress,
-        
-        /// <summary>Match has been paused</summary>
         Paused,
-        
-        /// <summary>Match has ended, processing results</summary>
         Processing,
-        
-        /// <summary>Match completed successfully</summary>
         Completed,
-        
-        /// <summary>Match was cancelled</summary>
         Cancelled,
-        
-        /// <summary>Player forfeited the match</summary>
         Forfeited
-    }
-
-    /// <summary>
-    /// Player roles within the platform
-    /// </summary>
-    public enum PlayerRole
-    {
-        /// <summary>Regular player</summary>
-        Player,
-        
-        /// <summary>Game developer with SDK access</summary>
-        Developer,
-        
-        /// <summary>Platform administrator</summary>
-        Admin
-    }
-
-    /// <summary>
-    /// Connection state for real-time features
-    /// </summary>
-    public enum ConnectionState
-    {
-        /// <summary>Not connected to server</summary>
-        Disconnected,
-        
-        /// <summary>Attempting to connect</summary>
-        Connecting,
-        
-        /// <summary>Successfully connected</summary>
-        Connected,
-        
-        /// <summary>Connection lost, attempting reconnect</summary>
-        Reconnecting,
-        
-        /// <summary>Connection failed</summary>
-        Failed
-    }
-
-    /// <summary>
-    /// Score comparison types
-    /// </summary>
-    public enum ScoreType
-    {
-        /// <summary>Higher score wins (most games)</summary>
-        HigherIsBetter,
-        
-        /// <summary>Lower score wins (racing, golf)</summary>
-        LowerIsBetter
-    }
-
-   /// <summary>
-    /// Tournament entry fee currencies (BSC and TRON networks only)
-    /// </summary>
-    public enum Currency
-    {
-        /// <summary>Free to play</summary>
-        Free,
-        
-        /// <summary>BNB on BSC</summary>
-        BNB,
-        
-        /// <summary>USDT on BSC (BEP-20)</summary>
-        USDT_BSC,
-        
-        /// <summary>USDT on TRON (TRC-20)</summary>
-        USDT_TRON,
-        
-        /// <summary>USDC on BSC (BEP-20)</summary>
-        USDC_BSC,
-        
-        /// <summary>USDC on TRON (TRC-20)</summary>
-        USDC_TRON
     }
 
     /// <summary>
@@ -151,22 +101,69 @@ namespace Deskillz
     /// </summary>
     public enum MatchOutcome
     {
-        /// <summary>Result not yet determined</summary>
         Pending,
-        
-        /// <summary>Local player won</summary>
         Win,
-        
-        /// <summary>Local player lost</summary>
         Loss,
-        
-        /// <summary>Match ended in a tie</summary>
         Tie,
-        
-        /// <summary>Local player forfeited</summary>
         Forfeit,
-        
-        /// <summary>Match was cancelled</summary>
+        Cancelled,
+        // Aliases for compatibility
+        Lose = Loss,
+        Draw = Tie
+    }
+
+    /// <summary>
+    /// Score comparison types
+    /// </summary>
+    public enum ScoreType
+    {
+        HigherIsBetter,
+        LowerIsBetter
+    }
+
+    // =========================================================================
+    // TOURNAMENTS
+    // =========================================================================
+
+    /// <summary>
+    /// Tournament lifecycle status
+    /// </summary>
+    public enum TournamentStatus
+    {
+        Draft,
+        Open,
+        Starting,
+        InProgress,
+        Completed,
+        Cancelled
+    }
+
+    /// <summary>
+    /// Tournament format types
+    /// </summary>
+    public enum TournamentType
+    {
+        Standard,
+        Bracket,
+        Leaderboard,
+        HeadToHead,
+        TimedChallenge
+    }
+
+    // =========================================================================
+    // ROOMS & STAGES
+    // =========================================================================
+
+    /// <summary>
+    /// Private room status
+    /// </summary>
+    public enum RoomStatus
+    {
+        Waiting,
+        Starting,
+        InProgress,
+        Completed,
+        Closed,
         Cancelled
     }
 
@@ -175,13 +172,8 @@ namespace Deskillz
     /// </summary>
     public enum StageVisibility
     {
-        /// <summary>Only invited players can join</summary>
         Private,
-        
-        /// <summary>Only friends can see and join</summary>
         FriendsOnly,
-        
-        /// <summary>Anyone can find and join</summary>
         Public
     }
 
@@ -190,44 +182,67 @@ namespace Deskillz
     /// </summary>
     public enum StageAdminAction
     {
-        /// <summary>Kick a player from the stage</summary>
         Kick,
-        
-        /// <summary>Start the match</summary>
         Start,
-        
-        /// <summary>Cancel the stage</summary>
         Cancel,
-        
-        /// <summary>Transfer admin to another player</summary>
         TransferAdmin,
-        
-        /// <summary>Update stage configuration</summary>
         UpdateConfig
     }
 
+    // =========================================================================
+    // HOST SYSTEM
+    // =========================================================================
+
     /// <summary>
-    /// Logging levels for SDK debug output
+    /// Host tier levels for revenue sharing
     /// </summary>
-    public enum LogLevel
+    public enum HostTier
     {
-        /// <summary>No logging</summary>
-        None = 0,
-        
-        /// <summary>Only errors</summary>
-        Error = 1,
-        
-        /// <summary>Errors and warnings</summary>
-        Warning = 2,
-        
-        /// <summary>Errors, warnings, and info</summary>
-        Info = 3,
-        
-        /// <summary>All messages including debug</summary>
-        Debug = 4,
-        
-        /// <summary>Everything including verbose traces</summary>
-        Verbose = 5
+        Bronze = 0,
+        Silver = 1,
+        Gold = 2,
+        Platinum = 3,
+        Diamond = 4,
+        Elite = 5
+    }
+
+    /// <summary>
+    /// Badge categories for hosts
+    /// </summary>
+    public enum BadgeCategory
+    {
+        Achievement,
+        Milestone,
+        Special,
+        Seasonal,
+        Promotional
+    }
+
+    // =========================================================================
+    // PLAYER & NETWORK
+    // =========================================================================
+
+    /// <summary>
+    /// Player roles within the platform
+    /// </summary>
+    public enum PlayerRole
+    {
+        Player,
+        Developer,
+        Admin,
+        Moderator
+    }
+
+    /// <summary>
+    /// Connection state for real-time features
+    /// </summary>
+    public enum ConnectionState
+    {
+        Disconnected,
+        Connecting,
+        Connected,
+        Reconnecting,
+        Failed
     }
 
     /// <summary>
@@ -235,20 +250,76 @@ namespace Deskillz
     /// </summary>
     public enum MessageType
     {
-        /// <summary>Player state synchronization</summary>
         StateSync,
-        
-        /// <summary>Game action/input</summary>
         GameAction,
-        
-        /// <summary>Chat message</summary>
         Chat,
-        
-        /// <summary>System notification</summary>
         System,
-        
-        /// <summary>Custom game data</summary>
-        Custom
+        Custom,
+        Ping,
+        Pong
+    }
+
+    // =========================================================================
+    // CURRENCY & PAYMENTS
+    // =========================================================================
+
+    /// <summary>
+    /// Tournament entry fee currencies (BSC and TRON networks)
+    /// </summary>
+    public enum Currency
+    {
+        Free,
+        USD,
+        BNB,
+        USDT_BSC,
+        USDT_TRON,
+        USDC_BSC,
+        USDC_TRON,
+        ETH,
+        MATIC
+    }
+
+    /// <summary>
+    /// Transaction types for wallet history
+    /// </summary>
+    public enum TransactionType
+    {
+        Deposit,
+        Withdrawal,
+        EntryFee,
+        Prize,
+        Refund,
+        Bonus,
+        HostEarnings
+    }
+
+    /// <summary>
+    /// Transaction status
+    /// </summary>
+    public enum TransactionStatus
+    {
+        Pending,
+        Processing,
+        Completed,
+        Failed,
+        Cancelled
+    }
+
+    // =========================================================================
+    // LOGGING & ERRORS
+    // =========================================================================
+
+    /// <summary>
+    /// Logging levels for SDK debug output
+    /// </summary>
+    public enum LogLevel
+    {
+        None = 0,
+        Error = 1,
+        Warning = 2,
+        Info = 3,
+        Debug = 4,
+        Verbose = 5
     }
 
     /// <summary>
@@ -256,67 +327,55 @@ namespace Deskillz
     /// </summary>
     public enum ErrorCode
     {
-        /// <summary>No error</summary>
         None = 0,
-        
-        /// <summary>Unknown error occurred</summary>
         Unknown = 1,
         
-        /// <summary>SDK not initialized</summary>
+        // SDK Errors (100-199)
         NotInitialized = 100,
-        
-        /// <summary>Invalid API key</summary>
         InvalidApiKey = 101,
-        
-        /// <summary>API key expired</summary>
         ApiKeyExpired = 102,
+        ConfigurationError = 103,
         
-        /// <summary>Network request failed</summary>
+        // Network Errors (200-299)
         NetworkError = 200,
-        
-        /// <summary>Request timed out</summary>
         Timeout = 201,
-        
-        /// <summary>Server returned error</summary>
         ServerError = 202,
-        
-        /// <summary>WebSocket connection failed</summary>
         WebSocketError = 203,
+        ConnectionLost = 204,
         
-        /// <summary>No active match</summary>
+        // Match Errors (300-399)
         NoActiveMatch = 300,
-        
-        /// <summary>Match already in progress</summary>
         MatchInProgress = 301,
-        
-        /// <summary>Invalid score value</summary>
         InvalidScore = 302,
-        
-        /// <summary>Score submission failed</summary>
         ScoreSubmissionFailed = 303,
+        MatchNotFound = 304,
+        MatchExpired = 305,
         
-        /// <summary>Not authorized for this action</summary>
+        // Auth Errors (400-499)
         Unauthorized = 400,
-        
-        /// <summary>Player not authenticated</summary>
         NotAuthenticated = 401,
+        InvalidCredentials = 402,
+        AccountLocked = 403,
+        EmailNotVerified = 404,
+        TokenExpired = 405,
         
-        /// <summary>Stage not found</summary>
+        // Stage/Room Errors (500-599)
         StageNotFound = 500,
-        
-        /// <summary>Stage is full</summary>
         StageFull = 501,
-        
-        /// <summary>Not stage admin</summary>
         NotStageAdmin = 502,
-        
-        /// <summary>Invalid stage code</summary>
         InvalidStageCode = 503,
+        RoomNotFound = 504,
+        RoomClosed = 505,
         
-        /// <summary>Anti-cheat violation detected</summary>
+        // Anti-Cheat Errors (600-699)
         AntiCheatViolation = 600,
+        ScoreValidationFailed = 601,
+        SuspiciousActivity = 602,
         
-        /// <summary>Score validation failed</summary>
-        ScoreValidationFailed = 601
+        // Wallet Errors (700-799)
+        WalletNotConnected = 700,
+        InsufficientBalance = 701,
+        WalletLinkFailed = 702,
+        WithdrawalFailed = 703
     }
 }
