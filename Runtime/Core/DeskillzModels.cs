@@ -1,16 +1,23 @@
 // =============================================================================
 // Deskillz SDK for Unity - Data Models
 // Copyright (c) 2024-2026 Deskillz.Games. All rights reserved.
-// Version: 2.7.0 (Self-Sufficient Architecture)
+// Version: 3.5.2 (Web SDK Parity)
 // =============================================================================
 //
-// MERGED: All models from main SDK + StackIt SDK
-// This file replaces DeskillzModels.cs, DeskillzLobbyModels.cs, and 
-// StackItDeskillzModels.cs to resolve all duplicate definition errors.
+// MERGED: All models from main SDK + StackIt SDK + v3.5.2 additions
 //
-// DELETE these files after adding this one:
-// - StackItDeskillzModels.cs
-// - Any other game-specific *DeskillzModels.cs files
+// v3.5.2 additions:
+//   - QuickPlayConfig (with social win condition fields)
+//   - QuickPlayJoinParams / JoinResult / LaunchData / ScoreResult / MatchResult
+//   - DisputeRecord
+//   - ActiveSessionPayload
+//   - GameCapabilities + DEFAULT_CAPABILITIES
+//   - WalletBalanceEntry (per-currency with usdValue + color)
+//   - MatchRecord (match history)
+//   - CreateEsportRoomOpts / CreateSocialRoomOpts (with HostRole)
+//
+// NOTE: MatchInfo, PlayerPresence, MatchState, LobbyRoom are defined in
+// DeskillzLobbyModels.cs -- do NOT duplicate them here.
 //
 // =============================================================================
 
@@ -26,7 +33,6 @@ namespace Deskillz
 
     /// <summary>
     /// Authenticated user information.
-    /// Used after successful login/signup.
     /// </summary>
     [Serializable]
     public class AuthUser
@@ -46,14 +52,14 @@ namespace Deskillz
         public PlayerStats Stats;
         public DateTime CreatedAt;
         public DateTime LastLoginAt;
-        
+
         // Compatibility aliases
         public string Id { get => UserId; set => UserId = value; }
         public bool EmailVerified { get => IsVerified; set => IsVerified = value; }
-        
+
         public bool HasEmail => !string.IsNullOrEmpty(Email);
         public bool HasWallet => !string.IsNullOrEmpty(WalletAddress);
-        
+
         public override string ToString() => $"AuthUser({UserId}, {Username}, Lvl {Level})";
     }
 
@@ -71,7 +77,7 @@ namespace Deskillz
         public string ErrorCode;
         public int ExpiresIn;
         public bool IsNewUser;
-        
+
         // Compatibility aliases (camelCase for JSON)
         public string accessToken { get => Token; set => Token = value; }
         public string refreshToken { get => RefreshToken; set => RefreshToken = value; }
@@ -99,11 +105,11 @@ namespace Deskillz
         public int RoomsHosted;
         public int CurrentStreak;
         public int BestStreak;
-        
+
         // Compatibility aliases
         public int TotalGamesPlayed { get => TotalMatches; set => TotalMatches = value; }
         public int TotalWins { get => Wins; set => Wins = value; }
-        
+
         public float WinRate => TotalMatches > 0 ? (float)Wins / TotalMatches * 100f : 0f;
     }
 
@@ -122,7 +128,7 @@ namespace Deskillz
         public PlayerStats Stats;
         public bool IsOnline;
         public bool IsVerified;
-        
+
         public override string ToString() => $"PlayerProfile({PlayerId}, {Username})";
     }
 
@@ -143,9 +149,9 @@ namespace Deskillz
         public string CountryCode;
         public bool IsLocalPlayer;
         internal string AuthToken;
-        
+
         public float WinRate => TotalGamesPlayed > 0 ? (float)TotalWins / TotalGamesPlayed * 100f : 0f;
-        
+
         public AuthUser ToAuthUser() => new AuthUser
         {
             UserId = Id,
@@ -155,7 +161,7 @@ namespace Deskillz
             Level = Level,
             Stats = new PlayerStats { TotalMatches = TotalGamesPlayed, Wins = TotalWins }
         };
-        
+
         public override string ToString() => $"PlayerData({Id}, {Username})";
     }
 
@@ -175,7 +181,7 @@ namespace Deskillz
         public decimal BonusBalance;
         public string Currency;
         public List<CurrencyBalance> Balances;
-        
+
         public WalletBalance()
         {
             Balances = new List<CurrencyBalance>();
@@ -192,8 +198,25 @@ namespace Deskillz
         public decimal Amount;
         public string Symbol;
         public string Network;
-        
+
         public override string ToString() => $"{Amount} {Symbol}";
+    }
+
+    /// <summary>
+    /// Per-currency wallet balance with USD value (v3.5.2)
+    /// Maps to bridge-types.ts WalletBalance
+    /// </summary>
+    [Serializable]
+    public class WalletBalanceEntry
+    {
+        public string Currency;
+        public string Symbol;
+        public decimal Amount;
+        public decimal UsdValue;
+        public string Color;
+        public string Network;
+
+        public override string ToString() => $"{Amount:F4} {Symbol} (${UsdValue:F2})";
     }
 
     /// <summary>
@@ -207,7 +230,7 @@ namespace Deskillz
         public string Message;
         public string Nonce;
         public string Provider;
-        
+
         // Compatibility aliases
         public string walletAddress { get => WalletAddress; set => WalletAddress = value; }
         public string signature { get => Signature; set => Signature = value; }
@@ -215,7 +238,7 @@ namespace Deskillz
         public string nonce { get => Nonce; set => Nonce = value; }
 
         public WalletLinkRequest() { }
-        
+
         public WalletLinkRequest(string walletAddress, string signature, string message, string nonce)
         {
             WalletAddress = walletAddress;
@@ -263,13 +286,17 @@ namespace Deskillz
         public bool IsFeatured;
         public bool IsJoined;
         public string GameId;
+        public string GameName;
         public string ImageUrl;
         public Currency Currency;
-        
+        public string SocialGameType;
+        public int MinPlayersPerTable;
+        public int MaxPlayersPerTable;
+
         public bool IsFull => CurrentPlayers >= MaxPlayers;
         public bool CanJoin => Status == TournamentStatus.Open && !IsFull && !IsJoined;
         public bool IsFree => EntryFee == 0;
-        
+
         public override string ToString() => $"Tournament({TournamentId}, {Name}, {Status})";
     }
 
@@ -283,7 +310,7 @@ namespace Deskillz
         public int TotalCount;
         public int Page;
         public int PageSize;
-        
+
         public TournamentListResponse()
         {
             Tournaments = new List<Tournament>();
@@ -306,7 +333,7 @@ namespace Deskillz
         public bool IsActive;
         public DateTime RegisteredAt;
         public DateTime? LastScoreAt;
-        
+
         public override string ToString() => $"TournamentEntry({PlayerId}, Rank: {Rank}, Score: {Score})";
     }
 
@@ -346,14 +373,14 @@ namespace Deskillz
         public List<MatchPlayer> Players;
         public StageData Stage;
         public Dictionary<string, string> CustomParams;
-        
+
         // Compatibility aliases
         public int TimeLimitSeconds { get => Duration; set => Duration = value; }
-        
+
         public bool IsTimed => Duration > 0;
         public bool IsAsync => Mode == MatchMode.Asynchronous;
         public bool IsRealtime => Mode == MatchMode.Synchronous || Mode == MatchMode.CustomStage;
-        
+
         public float TimeRemaining
         {
             get
@@ -369,7 +396,7 @@ namespace Deskillz
             Players = new List<MatchPlayer>();
             CustomParams = new Dictionary<string, string>();
         }
-        
+
         public override string ToString() => $"MatchData({MatchId}, {Mode}, {Status})";
     }
 
@@ -388,7 +415,7 @@ namespace Deskillz
         public bool IsNPC;
         public ConnectionState ConnectionState;
         public DateTime LastUpdate;
-        
+
         public override string ToString() => $"MatchPlayer({PlayerId}, Score: {Score})";
     }
 
@@ -412,62 +439,40 @@ namespace Deskillz
         public string OpponentName;
         public string YourName;
         public string Error;
-        
+
         // Compatibility aliases
         public bool SubmitSuccessful { get => Success; set => Success = value; }
         public int YourScore { get => FinalScore; set => FinalScore = value; }
-        
+
         public override string ToString() => $"MatchResult({MatchId}, {Outcome}, Score: {FinalScore})";
     }
 
     /// <summary>
-    /// Simplified match info from lobby/deep link.
+    /// Match history record (v3.5.2)
+    /// Maps to bridge-types.ts MatchRecord
     /// </summary>
     [Serializable]
-    public class MatchInfo
+    public class MatchRecord
     {
         public string MatchId;
         public string TournamentId;
-        public string Token;
-        public MatchMode Mode;
+        public string TournamentName;
+        public string GameId;
+        public string GameName;
+        public int Score;
+        public int Rank;
+        public int TotalPlayers;
         public decimal EntryFee;
-        public decimal PrizePool;
-        public Currency Currency;
-        public int TimeLimitSeconds;
-        public int MaxPlayers;
-        public bool IsRealtime => Mode == MatchMode.Synchronous || Mode == MatchMode.CustomStage;
-        public bool IsTestMatch;
-        public Dictionary<string, string> CustomParams;
+        public decimal PrizeWon;
+        public string Currency;
+        public string Outcome;
+        public string OpponentName;
+        public int OpponentScore;
+        public DateTime PlayedAt;
+        public float DurationSeconds;
 
-        public MatchInfo()
-        {
-            CustomParams = new Dictionary<string, string>();
-        }
-
-        public string GetCustomParam(string key, string defaultValue = "")
-        {
-            return CustomParams.TryGetValue(key, out var value) ? value : defaultValue;
-        }
-
-        public int GetCustomParamInt(string key, int defaultValue = 0)
-        {
-            if (CustomParams.TryGetValue(key, out var value) && int.TryParse(value, out var result))
-                return result;
-            return defaultValue;
-        }
-
-        public MatchData ToMatchData() => new MatchData
-        {
-            MatchId = MatchId,
-            TournamentId = TournamentId,
-            Mode = Mode,
-            EntryFee = EntryFee,
-            PrizePool = PrizePool,
-            Currency = Currency,
-            Duration = TimeLimitSeconds,
-            Status = MatchStatus.Pending,
-            CustomParams = CustomParams
-        };
+        public bool IsWin => Outcome == "WIN" || Outcome == "Win";
+        public override string ToString() => $"MatchRecord({MatchId}, {Outcome}, Score: {Score})";
     }
 
     /// <summary>
@@ -487,7 +492,87 @@ namespace Deskillz
     }
 
     // =========================================================================
-    // ROOM MODELS
+    // ROOM CREATION OPTIONS (v3.5.2)
+    // =========================================================================
+
+    /// <summary>
+    /// Options for creating an esport room (v3.5.2)
+    /// Maps to DeskillzBridge.ts CreateEsportRoomOpts
+    /// </summary>
+    [Serializable]
+    public class CreateEsportRoomOpts
+    {
+        /// <summary>Room display name</summary>
+        public string Name;
+
+        /// <summary>Entry fee amount</summary>
+        public decimal EntryFee;
+
+        /// <summary>Entry fee currency</summary>
+        public string Currency = "USDT_BSC";
+
+        /// <summary>Min players to start</summary>
+        public int MinPlayers = 2;
+
+        /// <summary>Max players allowed</summary>
+        public int MaxPlayers = 8;
+
+        /// <summary>Whether host plays or spectates</summary>
+        public HostRole HostRole = HostRole.PLAYER;
+
+        /// <summary>Match duration in seconds (0 = no limit)</summary>
+        public int MatchDurationSeconds;
+
+        /// <summary>Esport match mode</summary>
+        public EsportMatchMode MatchMode = EsportMatchMode.SINGLE_MATCH;
+
+        /// <summary>Room visibility</summary>
+        public string Visibility = "UNLISTED";
+    }
+
+    /// <summary>
+    /// Options for creating a social game room (v3.5.2)
+    /// Maps to DeskillzBridge.ts CreateSocialRoomOpts
+    /// </summary>
+    [Serializable]
+    public class CreateSocialRoomOpts
+    {
+        /// <summary>Room display name</summary>
+        public string Name;
+
+        /// <summary>Social game type (BIG_TWO, MAHJONG, etc.)</summary>
+        public string SocialGameType;
+
+        /// <summary>Table stakes / buy-in amount</summary>
+        public decimal TableStakes;
+
+        /// <summary>Currency for stakes</summary>
+        public string Currency = "USDT_BSC";
+
+        /// <summary>Players per table</summary>
+        public int PlayersPerTable = 4;
+
+        /// <summary>Max tables in the room</summary>
+        public int MaxTables = 1;
+
+        /// <summary>Whether host plays or spectates</summary>
+        public HostRole HostRole = HostRole.PLAYER;
+
+        /// <summary>Rake percentage (platform fee)</summary>
+        public decimal RakePercent = 5m;
+
+        /// <summary>Room visibility</summary>
+        public string Visibility = "UNLISTED";
+
+        /// <summary>Win condition for the session</summary>
+        public SocialWinCondition WinCondition = SocialWinCondition.OPEN_ENDED;
+
+        /// <summary>Target value for win condition (points or rounds)</summary>
+        public int? WinConditionTarget;
+    }
+
+    // =========================================================================
+    // ROOM MODELS (legacy -- kept for backward compatibility)
     // =========================================================================
 
     /// <summary>
@@ -506,7 +591,8 @@ namespace Deskillz
     }
 
     /// <summary>
-    /// Private room information.
+    /// Private room information (legacy model).
+    /// See Deskillz.Rooms.PrivateRoom for the full model.
     /// </summary>
     [Serializable]
     public class PrivateRoom
@@ -525,7 +611,7 @@ namespace Deskillz
         public DateTime CreatedAt;
         public DateTime? StartedAt;
         public DateTime? EndedAt;
-        
+
         public int CurrentPlayerCount => Players?.Count ?? 0;
         public bool IsFull => CurrentPlayerCount >= MaxPlayers;
         public bool CanStart => Status == RoomStatus.Waiting && CurrentPlayerCount >= 2;
@@ -534,12 +620,12 @@ namespace Deskillz
         {
             Players = new List<RoomPlayer>();
         }
-        
+
         public override string ToString() => $"PrivateRoom({RoomId}, {Name}, {Status})";
     }
 
     /// <summary>
-    /// Player in a room.
+    /// Player in a room (legacy model).
     /// </summary>
     [Serializable]
     public class RoomPlayer
@@ -554,80 +640,270 @@ namespace Deskillz
         public int TotalScore;
         public int MatchesPlayed;
         public DateTime JoinedAt;
-        
+
         public override string ToString() => $"RoomPlayer({PlayerId}, Host: {IsHost}, Ready: {IsReady})";
     }
 
+    // =========================================================================
+    // QUICK PLAY MODELS (v3.5.2)
+    // =========================================================================
+
     /// <summary>
-    /// Player presence in lobby/pre-match.
+    /// Quick Play configuration returned by the API (v3.5.2)
+    /// Maps to bridge-types.ts QuickPlayConfig
     /// </summary>
     [Serializable]
-    public class PlayerPresence
+    public class QuickPlayConfig
+    {
+        public string Id;
+        public string GameId;
+        public bool Enabled;
+        public int MinPlayers;
+        public int MaxPlayers;
+        public decimal EntryFee;
+        public string Currency;
+        public string PrizeType;
+        public int MatchDurationSeconds;
+        public int QueueTimeoutSeconds;
+        public bool AllowBots;
+
+        // Social win condition fields (v3.5.1)
+        public string SocialWinCondition;
+        public List<int> SocialPointTargets;
+        public List<int> SocialRoundTargets;
+        public int SocialDefaultTarget;
+        public bool SocialAllowFreePlay;
+
+        public QuickPlayConfig()
+        {
+            SocialPointTargets = new List<int>();
+            SocialRoundTargets = new List<int>();
+        }
+
+        /// <summary>Parse the SocialWinCondition string to enum</summary>
+        public Deskillz.SocialWinCondition GetWinCondition()
+        {
+            if (System.Enum.TryParse<Deskillz.SocialWinCondition>(SocialWinCondition, true, out var result))
+                return result;
+            return Deskillz.SocialWinCondition.OPEN_ENDED;
+        }
+    }
+
+    /// <summary>
+    /// Parameters for joining Quick Play queue (v3.5.2)
+    /// </summary>
+    [Serializable]
+    public class QuickPlayJoinParams
+    {
+        public string GameId;
+        public string Currency;
+        public decimal EntryFee;
+        public string MatchMode;
+        public int? SelectedTarget;
+    }
+
+    /// <summary>
+    /// Result of joining the Quick Play queue (v3.5.2)
+    /// </summary>
+    [Serializable]
+    public class QuickPlayJoinResult
+    {
+        public bool Success;
+        public string QueueId;
+        public string Status;
+        public int Position;
+        public int EstimatedWaitSeconds;
+        public string Error;
+    }
+
+    /// <summary>
+    /// Data received when a Quick Play match is ready to launch (v3.5.2)
+    /// </summary>
+    [Serializable]
+    public class QuickPlayLaunchData
+    {
+        public string MatchSessionId;
+        public string MatchId;
+        public string RoomCode;
+        public string GameId;
+        public string DeepLink;
+        public string Token;
+        public decimal EntryFee;
+        public string Currency;
+        public List<QuickPlayOpponent> Opponents;
+
+        public QuickPlayLaunchData()
+        {
+            Opponents = new List<QuickPlayOpponent>();
+        }
+    }
+
+    /// <summary>
+    /// Opponent info in Quick Play match (v3.5.2)
+    /// </summary>
+    [Serializable]
+    public class QuickPlayOpponent
     {
         public string PlayerId;
         public string Username;
         public string AvatarUrl;
         public int Rating;
-        public bool IsReady;
         public bool IsNPC;
-        public bool IsLocalPlayer;
-        public DateTime JoinedAt;
-        public ConnectionState ConnectionStatus = ConnectionState.Connected;
     }
 
     /// <summary>
-    /// Lobby room state.
-    /// </summary>
-    public enum MatchState
-    {
-        Waiting,
-        ReadyCheck,
-        Countdown,
-        Launching,
-        InProgress,
-        Completed,
-        Cancelled
-    }
-
-    /// <summary>
-    /// Lobby room where players gather before a match.
+    /// Result of submitting a Quick Play score (v3.5.2)
     /// </summary>
     [Serializable]
-    public class LobbyRoom
+    public class QuickPlayScoreResult
     {
+        public bool Success;
+        public string MatchId;
+        public int Score;
+        public int Rank;
+        public string Status;
+        public string Error;
+    }
+
+    /// <summary>
+    /// Final results of a Quick Play match (v3.5.2)
+    /// </summary>
+    [Serializable]
+    public class QuickPlayMatchResult
+    {
+        public string MatchId;
+        public string Status;
+        public string Winner;
+        public decimal PrizeWon;
+        public string Currency;
+        public List<QuickPlayPlayerResult> Players;
+
+        public QuickPlayMatchResult()
+        {
+            Players = new List<QuickPlayPlayerResult>();
+        }
+    }
+
+    /// <summary>
+    /// Per-player result in a Quick Play match (v3.5.2)
+    /// </summary>
+    [Serializable]
+    public class QuickPlayPlayerResult
+    {
+        public string PlayerId;
+        public string Username;
+        public int Score;
+        public int Rank;
+        public decimal PrizeWon;
+        public bool IsWinner;
+    }
+
+    // =========================================================================
+    // DISPUTE MODELS (v3.5.2)
+    // =========================================================================
+
+    /// <summary>
+    /// Dispute record (v3.5.2)
+    /// Maps to bridge-types.ts DisputeRecord
+    /// </summary>
+    [Serializable]
+    public class DisputeRecord
+    {
+        public string Id;
+        public string MatchId;
+        public string TournamentId;
+        public string RoomCode;
+        public string UserId;
+        public string Reason;
+        public string Description;
+        public string Status;
+        public string Resolution;
+        public string ReviewerNotes;
+        public List<string> Evidence;
+        public DateTime CreatedAt;
+        public DateTime? ResolvedAt;
+
+        public bool IsResolved => Status == "RESOLVED" || Status == "REJECTED";
+
+        public DisputeRecord()
+        {
+            Evidence = new List<string>();
+        }
+
+        public override string ToString() => $"Dispute({Id}, {Status}, Match: {MatchId})";
+    }
+
+    // =========================================================================
+    // ACTIVE SESSION (v3.5.2)
+    // =========================================================================
+
+    /// <summary>
+    /// Active session payload returned by checkForActiveSession (v3.5.2)
+    /// Maps to bridge-types.ts ActiveSessionPayload
+    /// </summary>
+    [Serializable]
+    public class ActiveSessionPayload
+    {
+        public bool HasActiveSession;
+        public string Type;
         public string RoomId;
+        public string RoomCode;
+        public string MatchId;
         public string TournamentId;
         public string GameId;
-        public MatchState State;
-        public List<PlayerPresence> Players;
-        public int MaxPlayers;
-        public int MinPlayers;
-        public decimal EntryFee;
-        public Currency Currency;
-        public DateTime CreatedAt;
-        public int CountdownSeconds;
+        public string Status;
 
-        public int PlayerCount => Players?.Count ?? 0;
-        public int ReadyCount
-        {
-            get
-            {
-                int count = 0;
-                if (Players != null)
-                    foreach (var p in Players)
-                        if (p.IsReady) count++;
-                return count;
-            }
-        }
-        public bool AllReady => PlayerCount > 0 && ReadyCount == PlayerCount;
-        public bool HasMinPlayers => PlayerCount >= MinPlayers;
-        public bool IsFull => PlayerCount >= MaxPlayers;
-        public bool CanStart => AllReady && HasMinPlayers;
+        public bool IsRoom => Type == "room";
+        public bool IsTournament => Type == "tournament";
+        public bool IsQuickPlay => Type == "quickplay";
+    }
 
-        public LobbyRoom()
+    // =========================================================================
+    // GAME CAPABILITIES (v3.5.2)
+    // =========================================================================
+
+    /// <summary>
+    /// Game capabilities and configuration (v3.5.2)
+    /// Maps to types/GameCapabilities.ts
+    /// </summary>
+    [Serializable]
+    public class GameCapabilities
+    {
+        public bool Supports1v1;
+        public bool SupportsFFA;
+        public bool SupportsSinglePlayer;
+        public bool SupportsSingleElimination;
+        public bool SupportsBlitz1v1;
+        public bool SupportsDuel1v1;
+        public bool SupportsTurnBased;
+        public bool SupportsSync;
+        public bool SupportsAsync;
+        public int MinMatchDurationSeconds;
+        public int MaxMatchDurationSeconds;
+        public int MaxTournamentSize;
+        public int MinPlayersPerMatch;
+        public int MaxPlayersPerMatch;
+
+        /// <summary>
+        /// Default capabilities used as fallback before API responds
+        /// </summary>
+        public static GameCapabilities Default => new GameCapabilities
         {
-            Players = new List<PlayerPresence>();
-        }
+            Supports1v1 = true,
+            SupportsFFA = true,
+            SupportsSinglePlayer = false,
+            SupportsSingleElimination = true,
+            SupportsBlitz1v1 = false,
+            SupportsDuel1v1 = false,
+            SupportsTurnBased = false,
+            SupportsSync = true,
+            SupportsAsync = true,
+            MinMatchDurationSeconds = 30,
+            MaxMatchDurationSeconds = 600,
+            MaxTournamentSize = 256,
+            MinPlayersPerMatch = 2,
+            MaxPlayersPerMatch = 8,
+        };
     }
 
     // =========================================================================
@@ -670,27 +946,27 @@ namespace Deskillz
         {
             Badges = new List<HostBadge>();
         }
-        
+
         public float GetEsportsRevenueShare() => EsportsTier switch
         {
-            HostTier.Bronze => 50f,
-            HostTier.Silver => 55f,
-            HostTier.Gold => 60f,
-            HostTier.Platinum => 65f,
-            HostTier.Diamond => 70f,
-            HostTier.Elite => 75f,
-            _ => 50f
+            HostTier.Bronze => 15f,
+            HostTier.Silver => 18f,
+            HostTier.Gold => 20f,
+            HostTier.Platinum => 23f,
+            HostTier.Diamond => 25f,
+            HostTier.Elite => 28f,
+            _ => 15f
         };
-        
+
         public float GetSocialRevenueShare() => SocialTier switch
         {
-            HostTier.Bronze => 50f,
-            HostTier.Silver => 53f,
-            HostTier.Gold => 56f,
-            HostTier.Platinum => 59f,
-            HostTier.Diamond => 62f,
-            HostTier.Elite => 65f,
-            _ => 50f
+            HostTier.Bronze => 15f,
+            HostTier.Silver => 18f,
+            HostTier.Gold => 20f,
+            HostTier.Platinum => 23f,
+            HostTier.Diamond => 25f,
+            HostTier.Elite => 28f,
+            _ => 15f
         };
     }
 
@@ -746,7 +1022,7 @@ namespace Deskillz
         public float BonusPercent;
         public DateTime EarnedAt;
         public DateTime? ExpiresAt;
-        
+
         public bool IsExpired => ExpiresAt.HasValue && DateTime.UtcNow > ExpiresAt.Value;
     }
 
@@ -802,7 +1078,7 @@ namespace Deskillz
         public string Details;
 
         public DeskillzError() { }
-        
+
         public DeskillzError(ErrorCode code, string message, string details = null)
         {
             ErrorCode = code;
@@ -916,13 +1192,13 @@ namespace Deskillz
 
         public static string GetTierIcon(HostTier tier) => tier switch
         {
-            HostTier.Bronze => "🥉",
-            HostTier.Silver => "🥈",
-            HostTier.Gold => "🥇",
-            HostTier.Platinum => "💎",
-            HostTier.Diamond => "👑",
-            HostTier.Elite => "🏆",
-            _ => "🎖"
+            HostTier.Bronze => "[B]",
+            HostTier.Silver => "[S]",
+            HostTier.Gold => "[G]",
+            HostTier.Platinum => "[P]",
+            HostTier.Diamond => "[D]",
+            HostTier.Elite => "[E]",
+            _ => "[?]"
         };
 
         public static int GetRoomsRequiredForTier(HostTier tier) => tier switch

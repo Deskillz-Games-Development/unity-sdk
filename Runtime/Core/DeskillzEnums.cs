@@ -1,13 +1,22 @@
 // =============================================================================
-// Deskillz SDK for Unity
+// Deskillz SDK for Unity - Enumerations
 // Copyright (c) 2024-2026 Deskillz.Games. All rights reserved.
-// Version: 2.7.0 (Self-Sufficient Architecture)
+// Version: 3.5.2 (Web SDK Parity)
 // =============================================================================
 //
-// MERGED: Includes all enums from main SDK + StackIt SDK
-// This file replaces both DeskillzEnums.cs and StackItDeskillzModels.cs enums
+// MERGED: All enums from main SDK + StackIt SDK + v3.5.2 additions
+//
+// v3.5.2 additions:
+//   - SocialWinCondition (5 values)
+//   - UserEnrollmentStatus (10 values)
+//   - HostRole (PLAYER/SPECTATOR)
+//   - EsportMatchMode (3 values)
+//   - Cleaned Currency enum (removed unsupported ETH/MATIC)
+//   - CurrencyLabels helper dictionary
 //
 // =============================================================================
+
+using System.Collections.Generic;
 
 namespace Deskillz
 {
@@ -121,6 +130,17 @@ namespace Deskillz
         LowerIsBetter
     }
 
+    /// <summary>
+    /// Esport match modes (v3.5.2)
+    /// Maps to backend EsportMatchMode enum
+    /// </summary>
+    public enum EsportMatchMode
+    {
+        SINGLE_MATCH,
+        BEST_OF_3,
+        BEST_OF_5
+    }
+
     // =========================================================================
     // TOURNAMENTS
     // =========================================================================
@@ -131,7 +151,9 @@ namespace Deskillz
     public enum TournamentStatus
     {
         Draft,
+        Scheduled,
         Open,
+        CheckIn,
         Starting,
         InProgress,
         Completed,
@@ -147,7 +169,85 @@ namespace Deskillz
         Bracket,
         Leaderboard,
         HeadToHead,
-        TimedChallenge
+        TimedChallenge,
+        SingleElimination,
+        FreeForAll,
+        Blitz1v1,
+        Duel1v1
+    }
+
+    /// <summary>
+    /// User enrollment status within a tournament (v3.5.2)
+    /// Maps to bridge-types.ts UserEnrollmentStatus
+    /// </summary>
+    public enum UserEnrollmentStatus
+    {
+        NOT_REGISTERED,
+        REGISTERED,
+        CHECKIN_OPEN,
+        CHECKED_IN,
+        SEATED,
+        PLAYING,
+        WON,
+        ELIMINATED,
+        DQ_NO_SHOW,
+        DQ_DISCONNECT,
+        STANDBY,
+        SUBBED_IN
+    }
+
+    /// <summary>
+    /// Booking status for tournament table seating (v3.5.2)
+    /// </summary>
+    public enum BookingStatus
+    {
+        REGISTERED,
+        CHECKED_IN,
+        SEATED,
+        PLAYING,
+        WON,
+        ELIMINATED,
+        DQ_NO_SHOW,
+        DQ_DISCONNECT,
+        STANDBY,
+        SUBBED_IN
+    }
+
+    // =========================================================================
+    // SOCIAL GAMES (v3.5.2)
+    // =========================================================================
+
+    /// <summary>
+    /// Win condition for social Quick Play sessions (v3.5.2)
+    /// Maps to bridge-types.ts SocialWinCondition
+    /// </summary>
+    public enum SocialWinCondition
+    {
+        /// <summary>First player to reach a target score wins</summary>
+        FIRST_TO_POINTS,
+
+        /// <summary>Play a fixed number of rounds, highest score wins</summary>
+        FIXED_ROUNDS,
+
+        /// <summary>Play for a fixed time duration</summary>
+        TIMED_SESSION,
+
+        /// <summary>Single game, one and done</summary>
+        SINGLE_GAME,
+
+        /// <summary>No win condition, play until all players leave</summary>
+        OPEN_ENDED
+    }
+
+    /// <summary>
+    /// Social game type classification
+    /// </summary>
+    public enum SocialGameType
+    {
+        BIG_TWO,
+        MAHJONG,
+        CHINESE_POKER_13,
+        DOU_DIZHU
     }
 
     // =========================================================================
@@ -187,6 +287,19 @@ namespace Deskillz
         Cancel,
         TransferAdmin,
         UpdateConfig
+    }
+
+    /// <summary>
+    /// Host role when creating a room (v3.5.2)
+    /// Determines whether the host plays or spectates
+    /// </summary>
+    public enum HostRole
+    {
+        /// <summary>Host participates as a player</summary>
+        PLAYER,
+
+        /// <summary>Host watches as a spectator (does not occupy a seat)</summary>
+        SPECTATOR
     }
 
     // =========================================================================
@@ -264,7 +377,8 @@ namespace Deskillz
     // =========================================================================
 
     /// <summary>
-    /// Tournament entry fee currencies (BSC and TRON networks)
+    /// Supported cryptocurrencies (BSC and TRON networks)
+    /// v3.5.2: Removed unsupported ETH/MATIC
     /// </summary>
     public enum Currency
     {
@@ -274,9 +388,70 @@ namespace Deskillz
         USDT_BSC,
         USDT_TRON,
         USDC_BSC,
-        USDC_TRON,
-        ETH,
-        MATIC
+        USDC_TRON
+    }
+
+    /// <summary>
+    /// Display labels for currencies (v3.5.2)
+    /// Maps to bridge-types.ts CURRENCY_LABELS
+    /// </summary>
+    public static class CurrencyLabels
+    {
+        private static readonly Dictionary<Currency, string> Labels = new Dictionary<Currency, string>
+        {
+            { Currency.Free, "Free" },
+            { Currency.USD, "USD" },
+            { Currency.BNB, "BNB" },
+            { Currency.USDT_BSC, "USDT (BSC)" },
+            { Currency.USDT_TRON, "USDT (Tron)" },
+            { Currency.USDC_BSC, "USDC (BSC)" },
+            { Currency.USDC_TRON, "USDC (Tron)" },
+        };
+
+        private static readonly Dictionary<Currency, string> Symbols = new Dictionary<Currency, string>
+        {
+            { Currency.Free, "" },
+            { Currency.USD, "$" },
+            { Currency.BNB, "BNB" },
+            { Currency.USDT_BSC, "USDT" },
+            { Currency.USDT_TRON, "USDT" },
+            { Currency.USDC_BSC, "USDC" },
+            { Currency.USDC_TRON, "USDC" },
+        };
+
+        private static readonly Dictionary<Currency, string> Networks = new Dictionary<Currency, string>
+        {
+            { Currency.Free, "" },
+            { Currency.USD, "" },
+            { Currency.BNB, "BSC" },
+            { Currency.USDT_BSC, "BSC" },
+            { Currency.USDT_TRON, "TRON" },
+            { Currency.USDC_BSC, "BSC" },
+            { Currency.USDC_TRON, "TRON" },
+        };
+
+        /// <summary>Get display label (e.g. "USDT (BSC)")</summary>
+        public static string GetLabel(Currency currency) =>
+            Labels.TryGetValue(currency, out var label) ? label : currency.ToString();
+
+        /// <summary>Get symbol only (e.g. "USDT")</summary>
+        public static string GetSymbol(Currency currency) =>
+            Symbols.TryGetValue(currency, out var sym) ? sym : currency.ToString();
+
+        /// <summary>Get network name (e.g. "BSC", "TRON")</summary>
+        public static string GetNetwork(Currency currency) =>
+            Networks.TryGetValue(currency, out var net) ? net : "";
+
+        /// <summary>Format amount with currency symbol (e.g. "$5.00 USDT")</summary>
+        public static string Format(decimal amount, Currency currency)
+        {
+            if (currency == Currency.Free) return "Free";
+            var sym = GetSymbol(currency);
+            var net = GetNetwork(currency);
+            var formatted = $"{amount:F2} {sym}";
+            if (!string.IsNullOrEmpty(net)) formatted += $" ({net})";
+            return formatted;
+        }
     }
 
     /// <summary>
@@ -290,7 +465,9 @@ namespace Deskillz
         Prize,
         Refund,
         Bonus,
-        HostEarnings
+        HostEarnings,
+        RakeShare,
+        Settlement
     }
 
     /// <summary>
@@ -303,6 +480,32 @@ namespace Deskillz
         Completed,
         Failed,
         Cancelled
+    }
+
+    // =========================================================================
+    // QUICK PLAY (v3.5.2)
+    // =========================================================================
+
+    /// <summary>
+    /// Quick play queue state
+    /// </summary>
+    public enum QuickPlayQueueState
+    {
+        IDLE,
+        QUEUED,
+        FOUND,
+        READY,
+        PLAYING
+    }
+
+    /// <summary>
+    /// Quick play prize type
+    /// </summary>
+    public enum QuickPlayPrizeType
+    {
+        WINNER_TAKES_ALL,
+        TOP_HALF,
+        PROPORTIONAL
     }
 
     // =========================================================================
@@ -329,20 +532,20 @@ namespace Deskillz
     {
         None = 0,
         Unknown = 1,
-        
+
         // SDK Errors (100-199)
         NotInitialized = 100,
         InvalidApiKey = 101,
         ApiKeyExpired = 102,
         ConfigurationError = 103,
-        
+
         // Network Errors (200-299)
         NetworkError = 200,
         Timeout = 201,
         ServerError = 202,
         WebSocketError = 203,
         ConnectionLost = 204,
-        
+
         // Match Errors (300-399)
         NoActiveMatch = 300,
         MatchInProgress = 301,
@@ -350,7 +553,7 @@ namespace Deskillz
         ScoreSubmissionFailed = 303,
         MatchNotFound = 304,
         MatchExpired = 305,
-        
+
         // Auth Errors (400-499)
         Unauthorized = 400,
         NotAuthenticated = 401,
@@ -358,7 +561,7 @@ namespace Deskillz
         AccountLocked = 403,
         EmailNotVerified = 404,
         TokenExpired = 405,
-        
+
         // Stage/Room Errors (500-599)
         StageNotFound = 500,
         StageFull = 501,
@@ -366,16 +569,31 @@ namespace Deskillz
         InvalidStageCode = 503,
         RoomNotFound = 504,
         RoomClosed = 505,
-        
+        RoomFull = 506,
+        AlreadyInRoom = 507,
+
         // Anti-Cheat Errors (600-699)
         AntiCheatViolation = 600,
         ScoreValidationFailed = 601,
         SuspiciousActivity = 602,
-        
+
         // Wallet Errors (700-799)
         WalletNotConnected = 700,
         InsufficientBalance = 701,
         WalletLinkFailed = 702,
-        WithdrawalFailed = 703
+        WithdrawalFailed = 703,
+
+        // Tournament Errors (800-899)
+        TournamentNotFound = 800,
+        TournamentFull = 801,
+        AlreadyRegistered = 802,
+        CheckInNotOpen = 803,
+        NotRegistered = 804,
+
+        // Quick Play Errors (900-999)
+        AlreadyInQueue = 900,
+        NotInQueue = 901,
+        QueueTimeout = 902,
+        MatchLaunchFailed = 903
     }
 }

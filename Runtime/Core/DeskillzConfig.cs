@@ -21,7 +21,7 @@ namespace Deskillz
         /// <summary>
         /// Current SDK version.
         /// </summary>
-        public const string SDK_VERSION = "1.0.0";
+        public const string SDK_VERSION = "3.5.2";
 
         /// <summary>
         /// Minimum supported Unity version.
@@ -264,6 +264,7 @@ namespace Deskillz
 
        /// <summary>
         /// Base API URL for current environment.
+        /// Includes /api/v1 prefix. Used by DeskillzNetwork.
         /// </summary>
         public string BaseUrl
         {
@@ -275,6 +276,24 @@ namespace Deskillz
                     Environment.Sandbox => "https://sandbox-api.deskillz.games/api/v1",
                     Environment.Development => "http://localhost:3001/api/v1",
                     _ => "https://sandbox-api.deskillz.games/api/v1"
+                };
+            }
+        }
+
+        /// <summary>
+        /// Root API URL without /api/v1 suffix.
+        /// Used by ApiClient classes that include the prefix in endpoint constants.
+        /// </summary>
+        public string ApiBaseUrl
+        {
+            get
+            {
+                return _environment switch
+                {
+                    Environment.Production => "https://api.deskillz.games",
+                    Environment.Sandbox => "https://sandbox-api.deskillz.games",
+                    Environment.Development => "http://localhost:3001",
+                    _ => "https://sandbox-api.deskillz.games"
                 };
             }
         }

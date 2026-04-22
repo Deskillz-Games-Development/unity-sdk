@@ -1,8 +1,8 @@
 {
     "name": "com.deskillz.sdk",
-    "version": "1.0.0",
+    "version": "3.5.2",
     "displayName": "Deskillz SDK",
-    "description": "Deskillz competitive gaming SDK for Unity. Easily integrate tournaments, real-time multiplayer, and custom stages into your game.",
+    "description": "Deskillz competitive gaming SDK for Unity. Integrate tournaments, Quick Play matchmaking, private rooms, social games, and crypto prizes into your game.",
     "unity": "2020.3",
     "unityRelease": "0f1",
     "documentationUrl": "https://docs.deskillz.games/unity",
