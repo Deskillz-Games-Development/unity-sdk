@@ -108,7 +108,22 @@ Runtime/
     HostSpectatorManager.cs     - Spectator mode
   Multiplayer/
     SyncManager.cs              - Real-time state sync
+  Host/Social/
+    SocialGameManager.cs        - Social game sessions
+    BuyInManager.cs             - Buy-in / rebuy flow
+    RakeCalculator.cs           - Rake computation
+    SocialGameModels.cs         - Social data types
+  Lobby/
+    DeepLinkHandler.cs          - Deep link parsing
+    DeskillzBridge.cs           - Platform bridge
+    DeskillzLobbyClient.cs      - Lobby API client
   UI/                           - Pre-built UI components
+    LoginUI, SignUpUI, ForgotPasswordUI
+    LeaderboardUI, MatchHUD, ResultsUI
+    Rooms/ (CreateRoomUI, RoomLobbyUI, RoomListUI, RoomPlayerCard)
+    Host/ (HostDashboardUI, HostTierProgressUI, HostEarningsUI)
+    Social/ (BuyInModalUI, CashOutModalUI, RebuyModalUI, TurnTimerUI)
+    Spectator/ (HostSpectatorViewUI, HostScorePanelUI, RoomSwitcherUI)
 ```
 
 ---
@@ -518,6 +533,152 @@ HostDashboardExtensions.CheckAgeVerified(
 
 ---
 
+## Social Games
+
+Rake-based social games (Big 2, Mahjong, Thirteen Cards, Dou Dizhu).
+
+```csharp
+using Deskillz.Host.Social;
+
+// Initialize managers for a room
+SocialGameManager.Initialize(roomId);
+BuyInManager.Initialize(roomId);
+
+// Subscribe to events
+SocialGameManager.OnRoundEnded += result =>
+    Debug.Log($"Round {result.RoundNumber} won by {result.WinnerId}");
+BuyInManager.OnRebuyRequired += (playerId, timeout) =>
+    ShowRebuyModal(playerId, timeout);
+
+// End a round with pot distribution
+SocialGameManager.EndRound(winnerId, potAmount);
+
+// Rake calculation
+float rake = RakeCalculator.CalculateRakeWithCap(potAmount, rakePercent, rakeCap);
+var distribution = RakeCalculator.PreviewRakeDistribution(rake, hostTier);
+Debug.Log($"Host gets: ${distribution.HostShare}");
+```
+
+---
+
+## Spectator Mode
+
+Allow spectators to watch live games.
+
+```csharp
+using Deskillz.Spectator;
+
+// Join as spectator
+HostSpectatorManager.Watch(roomId,
+    state => Debug.Log($"Spectating room: {state.RoomId}"),
+    error => Debug.LogError(error.Message)
+);
+
+// Listen for game updates
+HostSpectatorManager.OnGameStateUpdated += state =>
+    Debug.Log($"Score update: {state.CurrentScores}");
+HostSpectatorManager.OnScoreChanged += (playerId, score) =>
+    Debug.Log($"{playerId}: {score}");
+
+// Switch between rooms
+HostSpectatorManager.SwitchTable(newRoomId,
+    state => Debug.Log($"Now watching: {state.RoomId}"),
+    error => {}
+);
+
+// Stop spectating
+HostSpectatorManager.Unwatch();
+```
+
+---
+
+## Score Encryption
+
+Scores are signed with HMAC-SHA256 to prevent tampering.
+
+```csharp
+using Deskillz.Score;
+
+// Automatic encryption on submit (recommended)
+ScoreManager.SubmitScore(score, onSuccess, onError);
+
+// Manual signing if needed
+string signature = ScoreEncryption.SignScore(matchId, score, timestamp);
+bool valid = ScoreEncryption.VerifyScore(matchId, score, timestamp, signature);
+```
+
+---
+
+## Scene Flow
+
+The `AuthSceneController` manages navigation between auth, lobby, and game scenes.
+
+```csharp
+using Deskillz;
+
+// Scenes are configured in DeskillzConfig:
+//   Auth Scene:  "Auth"    (login/signup UI)
+//   Lobby Scene: "Lobby"   (tournament browser)
+//   Game Scene:  "Game"    (gameplay)
+
+// Navigation is automatic after auth events:
+DeskillzAuth.OnLoginSuccess += user => AuthSceneController.GoToLobby();
+DeskillzAuth.OnLogout += () => AuthSceneController.GoToAuth();
+
+// Manual navigation
+AuthSceneController.GoToAuth();
+AuthSceneController.GoToLobby();
+AuthSceneController.GoToGame();
+```
+
+---
+
+## Pre-Built UI Components
+
+The SDK includes ready-to-use UI components in `Runtime/UI/`:
+
+| Component | Description |
+|-----------|-------------|
+| LoginUI | Email/password login form |
+| SignUpUI | Registration form |
+| ForgotPasswordUI | Password reset flow |
+| LeaderboardUI | Tournament leaderboard |
+| MatchHUD | In-game score/timer overlay |
+| ResultsUI | Match results and rankings |
+| CreateRoomUI | Room creation form |
+| RoomLobbyUI | Room lobby with player cards |
+| RoomListUI | Browse public rooms |
+| HostDashboardUI | Host earnings and tier progress |
+| HostTierProgressUI | Tier progress bar |
+| BuyInModalUI | Buy-in confirmation dialog |
+| CashOutModalUI | Cash-out confirmation |
+| RebuyModalUI | Rebuy prompt |
+| HostSpectatorViewUI | Spectator view with room switcher |
+| SocialGameSettingsUI | Social game configuration |
+| TurnTimerUI | Turn timer display |
+
+All components can be customized via `DeskillzTheme` for consistent styling.
+
+---
+
+## Auto-Updater
+
+The SDK includes an auto-update system.
+
+```csharp
+using Deskillz;
+
+DeskillzUpdater.CheckForUpdates(
+    (newVersion, changelog) => Debug.Log($"Update available: {newVersion}"),
+    () => Debug.Log("Already up to date")
+);
+
+// Built-in update UI
+DeskillzUpdaterUI.ShowUpdatePrompt();
+```
+
+---
+
 ## Disputes
 
 File disputes against matches with evidence.
@@ -709,6 +870,12 @@ Add to `Info.plist`:
 **Score submission failing:** Verify `ScoreType` in config matches your game (HigherIsBetter vs LowerIsBetter). Check that match is in `InProgress` status before submitting.
 
 **Wallet balance showing 0:** User must have a connected wallet with funds deposited. Guest mode users have no wallet access.
+
+**Host system not initializing:** Ensure host profile is created first via HostManager.GetProfile or Developer Portal registration.
+
+**Social game session errors:** Verify room is in correct state before submitting rounds. BuyInManager must be initialized for the room.
+
+**Spectator not connecting:** Check that the room allows spectators and WebSocket is connected. Use HostSpectatorManager.Watch, not the old joinSpectator method.
 
 ---
 
