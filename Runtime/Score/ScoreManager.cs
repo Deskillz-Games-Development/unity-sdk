@@ -386,6 +386,15 @@ namespace Deskillz.Score
 
         private IEnumerator SubmitToServer(ScoreSubmission submission)
         {
+            // [P1-3.7.0] The backend keeps only FINAL scores (POST /tournaments/:id/score,
+            // HMAC-signed by ScoreSigner). Checkpoints stay local so the game can
+            // resume from them; the final submit carries the authoritative value.
+            if (submission.IsCheckpoint)
+            {
+                HandleSubmissionSuccess(submission);
+                yield break;
+            }
+
             var network = DeskillzManager.Instance?.Network;
             if (network == null)
             {
@@ -393,36 +402,11 @@ namespace Deskillz.Score
                 yield break;
             }
 
-            var endpoint = submission.IsCheckpoint ? "/sdk/score/checkpoint" : "/sdk/score/final";
-            bool completed = false;
             DeskillzError error = null;
-
-            yield return network.Post<ScoreResponse>(
-                endpoint,
-                submission.EncryptedPayload,
-                response =>
-                {
-                    completed = true;
-                    if (response.Accepted)
-                    {
-                        HandleSubmissionSuccess(submission);
-                    }
-                    else
-                    {
-                        error = new DeskillzError(ErrorCode.ScoreValidationFailed, response.RejectionReason);
-                    }
-                },
-                err =>
-                {
-                    completed = true;
-                    error = err;
-                }
-            );
-
-            if (error != null)
-            {
-                HandleSubmissionFailed(submission, error);
-            }
+            yield return ScoreSigner.SubmitTournamentScore(network, submission.MatchId, submission.Score,
+                () => HandleSubmissionSuccess(submission),
+                err => error = err);
+            if (error != null) HandleSubmissionFailed(submission, error);
         }
 
         private void HandleSubmissionSuccess(ScoreSubmission submission)
@@ -493,7 +477,6 @@ namespace Deskillz.Score
             // Encrypt if enabled
             if (_encryptScores && !Deskillz.TestMode)
             {
-                payload.EncryptedScore = _encryption.EncryptScore(submission.Score, submission.Timestamp);
                 payload.Signature = _encryption.SignPayload(payload);
             }
 

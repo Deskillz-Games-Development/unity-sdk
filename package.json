@@ -1,14 +1,18 @@
 {
     "name": "com.deskillz.sdk",
-    "version": "3.5.2",
+    "version": "3.7.0",
     "displayName": "Deskillz SDK",
+    "_patch": "[P1-3.7.0] Unity 6 / Railway API / Socket.IO / HMAC scores",
     "description": "Deskillz competitive gaming SDK for Unity. Integrate tournaments, Quick Play matchmaking, private rooms, social games, and crypto prizes into your game.",
-    "unity": "2020.3",
+    "unity": "6000.0",
     "unityRelease": "0f1",
     "documentationUrl": "https://docs.deskillz.games/unity",
     "changelogUrl": "https://docs.deskillz.games/unity/changelog",
     "licensesUrl": "https://deskillz.games/licenses",
-    "dependencies": {},
+    "dependencies": {
+        "com.unity.ugui": "2.0.0",
+        "com.unity.nuget.newtonsoft-json": "3.2.1"
+    },
     "keywords": [
         "deskillz",
         "esports",

@@ -86,7 +86,7 @@ namespace Deskillz
             Action<GameCapabilities> onSuccess,
             Action<string> onError)
         {
-            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? "https://api.deskillz.games";
+            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? DeskillzConfig.PLATFORM_API_HOST;
             var url = $"{baseUrl}/api/v1/games/{gameId}/capabilities";
 
             using var request = UnityWebRequest.Get(url);

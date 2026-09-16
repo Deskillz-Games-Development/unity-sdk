@@ -325,10 +325,10 @@ namespace Deskillz
 
             // Build request URL
             var config = DeskillzConfig.Instance;
-            var baseUrl = config?.BaseUrl ?? "https://api.deskillz.games/api/v1";
+            var baseUrl = config?.BaseUrl ?? DeskillzConfig.PLATFORM_API_HOST + "/api/v1";
             var gameId = config?.GameId ?? "";
             
-            var url = $"{baseUrl}/sdk/version-check?gameId={gameId}&currentVersion={_currentVersion}&versionCode={_currentVersionCode}&platform=ANDROID";
+            var url = $"{baseUrl}/sdk/version-check?currentVersion={_currentVersion}&versionCode={_currentVersionCode}&platform=ANDROID"; // [P1-3.7.0] keyed by X-Package-Name header
 
             using (var request = UnityWebRequest.Get(url))
             {
@@ -336,6 +336,7 @@ namespace Deskillz
                 request.SetRequestHeader("Content-Type", "application/json");
                 request.SetRequestHeader("X-SDK-Version", DeskillzConfig.SDK_VERSION);
                 request.SetRequestHeader("X-SDK-Platform", "Unity");
+                request.SetRequestHeader("X-Package-Name", Application.identifier); // [P1-3.7.0]
 
                 // Add API key if available
                 var apiKey = config?.ApiKey;

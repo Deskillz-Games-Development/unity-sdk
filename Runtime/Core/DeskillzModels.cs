@@ -138,6 +138,8 @@ namespace Deskillz
     [Serializable]
     public class PlayerData
     {
+        public string Email; // [P1-3.7.0 fixC]
+        public bool HasWallet;
         public string Id;
         public string Username;
         public string AvatarUrl;
@@ -406,6 +408,8 @@ namespace Deskillz
     [Serializable]
     public class MatchPlayer
     {
+        public bool IsConnected = true; // [P1-3.7.0 fixC]
+        public bool HasFinished;
         public string PlayerId;
         public string Username;
         public string AvatarUrl;
@@ -428,6 +432,11 @@ namespace Deskillz
         public string MatchId;
         public string TournamentId;
         public int FinalScore;
+        // [P1-3.7.0 fixC] members used by Deskillz.cs / MatchController / DeskillzBridge
+        public int FinalRank;
+        public Currency Currency = Currency.Free;
+        public float DurationSeconds;
+        public System.Collections.Generic.List<MatchPlayer> FinalStandings = new System.Collections.Generic.List<MatchPlayer>();
         public float Duration;
         public bool Success;
         public MatchOutcome Outcome;
@@ -681,11 +690,11 @@ namespace Deskillz
         }
 
         /// <summary>Parse the SocialWinCondition string to enum</summary>
-        public Deskillz.SocialWinCondition GetWinCondition()
+        public global::Deskillz.SocialWinCondition GetWinCondition()
         {
-            if (System.Enum.TryParse<Deskillz.SocialWinCondition>(SocialWinCondition, true, out var result))
+            if (System.Enum.TryParse<global::Deskillz.SocialWinCondition>(SocialWinCondition, true, out var result))
                 return result;
-            return Deskillz.SocialWinCondition.OPEN_ENDED;
+            return global::Deskillz.SocialWinCondition.OPEN_ENDED;
         }
     }
 
@@ -1085,6 +1094,15 @@ namespace Deskillz
             Code = code.ToString();
             Message = message;
             Details = details;
+        }
+
+        // [P1-3.7.0] recoverable = safe to retry / queue (network, timeout, 5xx)
+        public bool IsRecoverable;
+
+        public DeskillzError(ErrorCode code, string message, bool isRecoverable)
+            : this(code, message, (string)null)
+        {
+            IsRecoverable = isRecoverable;
         }
 
         public override string ToString() => $"[{Code}] {Message}";

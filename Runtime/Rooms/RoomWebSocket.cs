@@ -158,11 +158,9 @@ namespace Deskillz.Rooms
 
         private string GetWebSocketUrl()
         {
-            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? "https://api.deskillz.games";
-            var wsUrl = baseUrl
-                .Replace("https://", "wss://")
-                .Replace("http://", "ws://");
-            return $"{wsUrl}/lobby";
+            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? DeskillzConfig.PLATFORM_API_HOST;
+            // [P1-3.7.0] Socket.IO origin; namespace /lobby is selected by the client
+            return baseUrl;
         }
 
         // =====================================================================
@@ -183,7 +181,7 @@ namespace Deskillz.Rooms
                 data = new { roomId = _currentRoomId }
             };
 
-            _socket.Send(JsonUtility.ToJson(message));
+            _socket.Emit(message.@event, message.data);
             DeskillzLogger.Debug($"[RoomWebSocket] Subscribed to room {_currentRoomId}");
         }
 
@@ -201,7 +199,7 @@ namespace Deskillz.Rooms
                 data = new { roomId = _currentRoomId }
             };
 
-            _socket.Send(JsonUtility.ToJson(message));
+            _socket.Emit(message.@event, message.data);
             DeskillzLogger.Debug($"[RoomWebSocket] Unsubscribed from room {_currentRoomId}");
         }
 
@@ -222,7 +220,7 @@ namespace Deskillz.Rooms
                 data = new { roomId, isReady }
             };
 
-            _socket.Send(JsonUtility.ToJson(message));
+            _socket.Emit(message.@event, message.data);
             DeskillzLogger.Debug($"[RoomWebSocket] Sent ready={isReady} for room {roomId}");
         }
 
@@ -243,7 +241,7 @@ namespace Deskillz.Rooms
                 data = new { roomId, message = chatMessage }
             };
 
-            _socket.Send(JsonUtility.ToJson(message));
+            _socket.Emit(message.@event, message.data);
         }
 
         /// <summary>
@@ -260,7 +258,7 @@ namespace Deskillz.Rooms
                 data = new { roomId }
             };
 
-            _socket.Send(JsonUtility.ToJson(message));
+            _socket.Emit(message.@event, message.data);
             DeskillzLogger.Debug($"[RoomWebSocket] Sent start request for room {roomId}");
         }
 
@@ -278,7 +276,7 @@ namespace Deskillz.Rooms
                 data = new { roomId, targetUserId }
             };
 
-            _socket.Send(JsonUtility.ToJson(message));
+            _socket.Emit(message.@event, message.data);
         }
 
         /// <summary>
@@ -295,7 +293,7 @@ namespace Deskillz.Rooms
                 data = new { roomId }
             };
 
-            _socket.Send(JsonUtility.ToJson(message));
+            _socket.Emit(message.@event, message.data);
         }
 
         // =====================================================================
@@ -505,8 +503,9 @@ namespace Deskillz.Rooms
     // =========================================================================
 
     /// <summary>
-    /// Low-level WebSocket client wrapper.
-    /// Uses Unity's native WebSocket support or a fallback library.
+    /// Socket.IO "/lobby" namespace wrapper (rooms, quick play).  [P1-3.7.0]
+    /// Incoming events are re-framed as { "event": ..., "data": "<json>" } so the
+    /// existing HandleMessage / ProcessEvent path is unchanged.
     /// </summary>
     internal class WebSocketClient
     {
@@ -515,19 +514,15 @@ namespace Deskillz.Rooms
         public event Action<string> OnMessage;
         public event Action<string> OnError;
 
-        private readonly string _url;
+        private readonly string _origin;
         private string _authToken;
-        private bool _isConnected;
+        private global::Deskillz.Realtime.SocketIOClient _io;
 
-        // Platform-specific implementation would go here
-        // For simplicity, this uses a generic interface
-        private IWebSocketImpl _impl;
+        public bool IsConnected => _io != null && _io.IsConnected;
 
-        public bool IsConnected => _isConnected;
-
-        public WebSocketClient(string url)
+        public WebSocketClient(string origin)
         {
-            _url = url;
+            _origin = origin;
         }
 
         public void SetAuthToken(string token)
@@ -537,142 +532,50 @@ namespace Deskillz.Rooms
 
         public void Connect()
         {
-            // Create platform-specific implementation
-            #if UNITY_WEBGL && !UNITY_EDITOR
-            _impl = new WebGLWebSocket(_url);
-            #else
-            _impl = new NativeWebSocket(_url);
-            #endif
-
-            _impl.OnOpen += () =>
+            if (_io == null)
             {
-                _isConnected = true;
-                OnConnected?.Invoke();
-            };
-
-            _impl.OnClose += () =>
-            {
-                _isConnected = false;
-                OnDisconnected?.Invoke();
-            };
-
-            _impl.OnMessage += (msg) => OnMessage?.Invoke(msg);
-            _impl.OnError += (err) => OnError?.Invoke(err);
-
-            var headers = new Dictionary<string, string>();
-            if (!string.IsNullOrEmpty(_authToken))
-            {
-                headers["Authorization"] = $"Bearer {_authToken}";
+                _io = new global::Deskillz.Realtime.SocketIOClient(_origin, "/lobby",
+                    () => _authToken ?? DeskillzManager.Instance?.CurrentPlayer?.AuthToken ?? DeskillzAuth.AccessToken);
+                _io.OnConnected += () => OnConnected?.Invoke();
+                _io.OnDisconnected += _ => OnDisconnected?.Invoke();
+                _io.OnError += err => OnError?.Invoke(err);
+                _io.OnEvent += (name, dataJson) =>
+                    OnMessage?.Invoke(DeskillzJson.Serialize(new SocketEnvelopeOut { @event = name, data = dataJson }));
             }
+            _io.Connect();
+        }
 
-            _impl.Connect(headers);
+        public void Emit(string eventName, object data)
+        {
+            if (!IsConnected)
+            {
+                DeskillzLogger.Warning($"[RoomWebSocket] emit {eventName} dropped: not connected");
+                return;
+            }
+            _io.Emit(eventName, data);
         }
 
         public void Send(string message)
         {
-            if (_isConnected && _impl != null)
-            {
-                _impl.Send(message);
-            }
+            // Raw envelope { event, data } support for callers that pre-serialize.
+            var ev = DeskillzJson.GetString(message, "event");
+            if (string.IsNullOrEmpty(ev)) return;
+            var obj = Newtonsoft.Json.Linq.JObject.Parse(message);
+            var data = obj["data"];
+            Emit(ev, data == null ? null : data.ToString(Newtonsoft.Json.Formatting.None));
         }
 
         public void Disconnect()
         {
-            _impl?.Close();
-            _isConnected = false;
-        }
-    }
-
-    /// <summary>
-    /// WebSocket implementation interface
-    /// </summary>
-    internal interface IWebSocketImpl
-    {
-        event Action OnOpen;
-        event Action OnClose;
-        event Action<string> OnMessage;
-        event Action<string> OnError;
-
-        void Connect(Dictionary<string, string> headers);
-        void Send(string message);
-        void Close();
-    }
-
-    /// <summary>
-    /// Native WebSocket implementation for standalone builds
-    /// </summary>
-    internal class NativeWebSocket : IWebSocketImpl
-    {
-        public event Action OnOpen;
-        public event Action OnClose;
-        public event Action<string> OnMessage;
-        public event Action<string> OnError;
-
-        private readonly string _url;
-
-        public NativeWebSocket(string url)
-        {
-            _url = url;
+            _io?.Dispose();
+            _io = null;
         }
 
-        public void Connect(Dictionary<string, string> headers)
+        [Serializable]
+        private class SocketEnvelopeOut
         {
-            // Implementation would use System.Net.WebSockets or a third-party library
-            // For now, this is a placeholder
-            DeskillzLogger.Debug($"[NativeWebSocket] Connecting to {_url}");
-            
-            // Simulate connection for structure purposes
-            // Real implementation would use:
-            // - ClientWebSocket for .NET Standard 2.1
-            // - websocket-sharp for older Unity versions
-            // - Best WebSocket for comprehensive support
-        }
-
-        public void Send(string message)
-        {
-            DeskillzLogger.Debug($"[NativeWebSocket] Sending: {message}");
-        }
-
-        public void Close()
-        {
-            DeskillzLogger.Debug("[NativeWebSocket] Closing");
-            OnClose?.Invoke();
-        }
-    }
-
-    /// <summary>
-    /// WebGL WebSocket implementation using JavaScript interop
-    /// </summary>
-    internal class WebGLWebSocket : IWebSocketImpl
-    {
-        public event Action OnOpen;
-        public event Action OnClose;
-        public event Action<string> OnMessage;
-        public event Action<string> OnError;
-
-        private readonly string _url;
-
-        public WebGLWebSocket(string url)
-        {
-            _url = url;
-        }
-
-        public void Connect(Dictionary<string, string> headers)
-        {
-            // Implementation would use JavaScript interop
-            // jslib functions to create and manage WebSocket
-            DeskillzLogger.Debug($"[WebGLWebSocket] Connecting to {_url}");
-        }
-
-        public void Send(string message)
-        {
-            DeskillzLogger.Debug($"[WebGLWebSocket] Sending: {message}");
-        }
-
-        public void Close()
-        {
-            DeskillzLogger.Debug("[WebGLWebSocket] Closing");
-            OnClose?.Invoke();
+            public string @event;
+            public string data;
         }
     }
 }

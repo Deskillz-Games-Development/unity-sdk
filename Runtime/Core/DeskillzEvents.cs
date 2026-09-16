@@ -5,6 +5,8 @@
 
 using System;
 using UnityEngine;
+using Deskillz.Rooms; // [P1-3.7.0 fixB]
+using Deskillz.Multiplayer; // [P1-3.7.0 fixB]
 
 namespace Deskillz
 {
@@ -323,60 +325,16 @@ namespace Deskillz
         // CUSTOM STAGE EVENTS
         // =============================================================================
 
-        /// <summary>
-        /// Fired when a custom stage is successfully created.
-        /// </summary>
-        public static event Action<StageData> OnStageCreated;
 
-        /// <summary>
-        /// Fired when successfully joined a custom stage.
-        /// </summary>
-        public static event Action<StageData> OnStageJoined;
 
-        /// <summary>
-        /// Fired when stage configuration is updated.
-        /// </summary>
-        public static event Action<StageData> OnStageUpdated;
 
-        /// <summary>
-        /// Fired when a player joins the stage.
-        /// </summary>
-        public static event Action<StagePlayer> OnStagePlayerJoined;
 
-        /// <summary>
-        /// Fired when a player leaves the stage.
-        /// </summary>
-        public static event Action<StagePlayer> OnStagePlayerLeft;
 
-        /// <summary>
-        /// Fired when a player's ready state changes.
-        /// </summary>
-        public static event Action<StagePlayer> OnStagePlayerReadyChanged;
 
-        /// <summary>
-        /// Fired when stage admin changes.
-        /// </summary>
-        public static event Action<string> OnStageAdminChanged;
 
-        /// <summary>
-        /// Fired when leaving a stage.
-        /// </summary>
-        public static event Action OnStageLeft;
 
-        /// <summary>
-        /// Fired when stage is cancelled/dissolved.
-        /// </summary>
-        public static event Action<string> OnStageCancelled;
 
-        /// <summary>
-        /// Fired when local player is kicked from stage.
-        /// </summary>
-        public static event Action<string> OnKickedFromStage;
 
-        /// <summary>
-        /// Fired when stage match is about to start.
-        /// </summary>
-        public static event Action<StageData> OnStageMatchStarting;
 
         // =============================================================================
         // CONNECTION EVENTS
@@ -688,72 +646,6 @@ namespace Deskillz
         // RAISERS - STAGE
         // =============================================================================
 
-        internal static void RaiseStageCreated(StageData stage)
-        {
-            DeskillzLogger.LogEvent("Stage Created", $"{stage.Name} ({stage.InviteCode})");
-            SafeInvoke(OnStageCreated, stage);
-        }
-
-        internal static void RaiseStageJoined(StageData stage)
-        {
-            DeskillzLogger.LogEvent("Stage Joined", stage.Name);
-            SafeInvoke(OnStageJoined, stage);
-        }
-
-        internal static void RaiseStageUpdated(StageData stage)
-        {
-            DeskillzLogger.LogEvent("Stage Updated", stage.Name);
-            SafeInvoke(OnStageUpdated, stage);
-        }
-
-        internal static void RaiseStagePlayerJoined(StagePlayer player)
-        {
-            DeskillzLogger.LogEvent("Stage Player Joined", player.Username);
-            SafeInvoke(OnStagePlayerJoined, player);
-        }
-
-        internal static void RaiseStagePlayerLeft(StagePlayer player)
-        {
-            DeskillzLogger.LogEvent("Stage Player Left", player.Username);
-            SafeInvoke(OnStagePlayerLeft, player);
-        }
-
-        internal static void RaiseStagePlayerReadyChanged(StagePlayer player)
-        {
-            DeskillzLogger.LogEvent("Player Ready Changed", $"{player.Username}: {player.IsReady}");
-            SafeInvoke(OnStagePlayerReadyChanged, player);
-        }
-
-        internal static void RaiseStageAdminChanged(string newAdminId)
-        {
-            DeskillzLogger.LogEvent("Stage Admin Changed", newAdminId);
-            SafeInvoke(OnStageAdminChanged, newAdminId);
-        }
-
-        internal static void RaiseStageLeft()
-        {
-            DeskillzLogger.LogEvent("Stage Left");
-            SafeInvoke(OnStageLeft);
-        }
-
-        internal static void RaiseStageCancelled(string reason)
-        {
-            DeskillzLogger.LogEvent("Stage Cancelled", reason);
-            SafeInvoke(OnStageCancelled, reason);
-        }
-
-        internal static void RaiseKickedFromStage(string reason)
-        {
-            DeskillzLogger.Warning($"Kicked From Stage: {reason}");
-            SafeInvoke(OnKickedFromStage, reason);
-        }
-
-        internal static void RaiseStageMatchStarting(StageData stage)
-        {
-            DeskillzLogger.LogEvent("Stage Match Starting", stage.Name);
-            SafeInvoke(OnStageMatchStarting, stage);
-        }
-
         // =============================================================================
         // RAISERS - CONNECTION
         // =============================================================================
@@ -763,6 +655,10 @@ namespace Deskillz
             DeskillzLogger.LogEvent("Connection State", state.ToString());
             SafeInvoke(OnConnectionStateChanged, state);
         }
+
+        // [P1-3.7.0] raw Socket.IO events (eventName, dataJson) -> RealtimeEventRouter
+        public static event Action<string, string> OnSocketMessage;
+        internal static void RaiseSocketMessage(string eventName, string jsonData) => OnSocketMessage?.Invoke(eventName, jsonData);
 
         internal static void RaiseConnected()
         {
@@ -858,10 +754,13 @@ namespace Deskillz
             SafeInvoke(OnSceneChanged, sceneName);
         }
 
-        internal static void RaiseWalletRequired(string reason)
+        public static event Action<string, Action> OnWalletRequiredWithCallback; // [P1-3.7.0 fixC]
+
+        internal static void RaiseWalletRequired(string reason, Action onWalletConnected = null)
         {
             DeskillzLogger.LogEvent("Wallet Required", reason);
             SafeInvoke(OnWalletRequired, reason);
+            if (onWalletConnected != null) OnWalletRequiredWithCallback?.Invoke(reason, onWalletConnected);
         }
 
         // =============================================================================
@@ -998,17 +897,6 @@ namespace Deskillz
             OnLobbyCancelled = null;
 
             // Stage
-            OnStageCreated = null;
-            OnStageJoined = null;
-            OnStageUpdated = null;
-            OnStagePlayerJoined = null;
-            OnStagePlayerLeft = null;
-            OnStagePlayerReadyChanged = null;
-            OnStageAdminChanged = null;
-            OnStageLeft = null;
-            OnStageCancelled = null;
-            OnKickedFromStage = null;
-            OnStageMatchStarting = null;
 
             // Connection
             OnConnectionStateChanged = null;

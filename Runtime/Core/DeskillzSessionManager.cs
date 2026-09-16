@@ -92,7 +92,7 @@ namespace Deskillz
 
         private static IEnumerator ValidateSSOTokenAsync(string token)
         {
-            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? "https://api.deskillz.games";
+            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? DeskillzConfig.PLATFORM_API_HOST;
             var url = $"{baseUrl}/api/v1/users/me";
 
             using var request = UnityWebRequest.Get(url);
@@ -146,7 +146,7 @@ namespace Deskillz
 
         private static IEnumerator CheckForActiveSessionAsync(Action<ActiveSessionPayload> onResult)
         {
-            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? "https://api.deskillz.games";
+            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? DeskillzConfig.PLATFORM_API_HOST;
             var url = $"{baseUrl}/api/v1/private-rooms/my-active";
 
             using var request = UnityWebRequest.Get(url);

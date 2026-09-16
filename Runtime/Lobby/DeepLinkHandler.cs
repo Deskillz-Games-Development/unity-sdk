@@ -67,20 +67,7 @@ namespace Deskillz
         // =============================================================================
         // NAVIGATION ACTIONS
         // =============================================================================
-
-        /// <summary>
-        /// Navigation actions from deep links (when app is opened from website).
-        /// </summary>
-        public enum NavigationAction
-        {
-            None,
-            Tournaments,    // deskillz://tournaments
-            Wallet,         // deskillz://wallet
-            Profile,        // deskillz://profile
-            Game,           // deskillz://game?id=xxx
-            Settings        // deskillz://settings
-        }
-
+    // [P1-3.7.0 fixB] NavigationAction lives in DeskillzEvents.cs (duplicate enum removed)
         // =============================================================================
         // STATE
         // =============================================================================
@@ -427,7 +414,7 @@ namespace Deskillz
                 case "stage":
                 case "private":
                 case "custom":
-                    return MatchMode.Stage;
+                    return MatchMode.CustomStage;
 
                 case "async":
                 case "asynchronous":
@@ -441,19 +428,18 @@ namespace Deskillz
         /// </summary>
         private Currency ParseCurrency(string currency)
         {
-            if (string.IsNullOrEmpty(currency)) return Currency.USDT;
-
-            currency = currency.ToUpper();
-            switch (currency)
+            // [P1-3.7.0 fixC] platform currency set: BNB, USDT/USDC on BSC and Tron, Free
+            if (string.IsNullOrEmpty(currency)) return Currency.USDT_BSC;
+            switch (currency.Trim().ToUpperInvariant().Replace('-', '_'))
             {
-                case "BTC": return Currency.BTC;
-                case "ETH": return Currency.ETH;
-                case "SOL": return Currency.SOL;
-                case "XRP": return Currency.XRP;
                 case "BNB": return Currency.BNB;
-                case "USDC": return Currency.USDC;
+                case "USDT": case "USDT_BSC": case "USDT_BEP20": return Currency.USDT_BSC;
+                case "USDT_TRON": case "USDT_TRC20": return Currency.USDT_TRON;
+                case "USDC": case "USDC_BSC": case "USDC_BEP20": return Currency.USDC_BSC;
+                case "USDC_TRON": case "USDC_TRC20": return Currency.USDC_TRON;
+                case "USD": return Currency.USD;
                 case "FREE": return Currency.Free;
-                default: return Currency.USDT;
+                default: return Currency.USDT_BSC;
             }
         }
 
@@ -522,7 +508,7 @@ namespace Deskillz
 
             string scheme = DeskillzConfig.Instance?.DeepLinkScheme ?? "deskillz";
             string modeStr = mode == MatchMode.Synchronous ? "sync" : 
-                            mode == MatchMode.Stage ? "stage" : "async";
+                            mode == MatchMode.CustomStage ? "stage" : "async";
 
             return $"{scheme}://match?id={matchId}&token={token}&tournament={tournamentId}" +
                    $"&mode={modeStr}&entry_fee={entryFee}&currency={currency}";

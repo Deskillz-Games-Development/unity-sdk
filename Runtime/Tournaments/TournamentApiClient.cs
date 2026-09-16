@@ -226,6 +226,45 @@ namespace Deskillz.Tournaments
         /// <summary>
         /// GET /api/v1/tournaments/:id/my-seat
         /// </summary>
+        /// <summary>
+        /// GET /api/v1/tournaments/:id/my-launch -- live table launch (matchId, links,
+        /// turnTimerSeconds, mahjongVariant...) or the N228 lobby payload while waiting.
+        /// </summary>
+        public static void GetMyLaunch(
+            string tournamentId,
+            Action<MyLaunch> onSuccess,
+            Action<TournamentError> onError)
+        {
+            DeskillzManager.Instance.StartCoroutine(
+                GetRequest<MyLaunch>(
+                    $"{TOURNAMENTS_ENDPOINT}/{tournamentId}/my-launch",
+                    onSuccess,
+                    onError
+                )
+            );
+        }
+
+        /// <summary>
+        /// POST /api/v1/tournaments/:id/score -- HMAC-signed final score (ScoreSigner).
+        /// </summary>
+        public static void SubmitScore(
+            string tournamentId,
+            string matchId,
+            int score,
+            Action<ScoreSubmitAck> onSuccess,
+            Action<TournamentError> onError)
+        {
+            var body = DeskillzJson.Serialize(ScoreSigner.Build(matchId, score));
+            DeskillzManager.Instance.StartCoroutine(
+                PostRequest<ScoreSubmitAck>(
+                    $"{TOURNAMENTS_ENDPOINT}/{tournamentId}/score",
+                    body,
+                    onSuccess,
+                    onError
+                )
+            );
+        }
+
         public static void GetMyTableAssignment(
             string tournamentId,
             Action<TableAssignment> onSuccess,
@@ -347,7 +386,7 @@ namespace Deskillz.Tournaments
 
         private static string GetFullUrl(string endpoint)
         {
-            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? "https://api.deskillz.games";
+            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? DeskillzConfig.PLATFORM_API_HOST;
             return $"{baseUrl}{endpoint}";
         }
 
@@ -387,7 +426,7 @@ namespace Deskillz.Tournaments
                         return;
                     }
 
-                    var data = JsonUtility.FromJson<T>(responseText);
+                    var data = DeskillzJson.Deserialize<T>(responseText); // [P1-3.7.0]
                     onSuccess?.Invoke(data);
                 }
                 catch (Exception ex)

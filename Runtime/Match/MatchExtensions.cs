@@ -231,20 +231,16 @@ namespace Deskillz.Match
         /// <summary>
         /// Get currency symbol.
         /// </summary>
-        public static string GetSymbol(this Currency currency)
+        public static string GetSymbol(this Currency currency) // [P1-3.7.0 fixC]
         {
-            return currency switch
+            switch (currency)
             {
-                Currency.BTC => "₿",
-                Currency.ETH => "Ξ",
-                Currency.SOL => "◎",
-                Currency.XRP => "✕",
-                Currency.BNB => "BNB",
-                Currency.USDT => "$",
-                Currency.USDC => "$",
-                Currency.Free => "",
-                _ => ""
-            };
+                case Currency.BNB: return "BNB";
+                case Currency.USDT_BSC: case Currency.USDT_TRON: return "USDT";
+                case Currency.USDC_BSC: case Currency.USDC_TRON: return "USDC";
+                case Currency.USD: return "$";
+                default: return "";
+            }
         }
 
         /// <summary>
@@ -252,18 +248,17 @@ namespace Deskillz.Match
         /// </summary>
         public static string GetFullName(this Currency currency)
         {
-            return currency switch
+            switch (currency)
             {
-                Currency.BTC => "Bitcoin",
-                Currency.ETH => "Ethereum",
-                Currency.SOL => "Solana",
-                Currency.XRP => "Ripple",
-                Currency.BNB => "Binance Coin",
-                Currency.USDT => "Tether USD",
-                Currency.USDC => "USD Coin",
-                Currency.Free => "Free",
-                _ => currency.ToString()
-            };
+                case Currency.BNB: return "BNB (BNB Chain)";
+                case Currency.USDT_BSC: return "Tether USD (BNB Chain)";
+                case Currency.USDT_TRON: return "Tether USD (Tron)";
+                case Currency.USDC_BSC: return "USD Coin (BNB Chain)";
+                case Currency.USDC_TRON: return "USD Coin (Tron)";
+                case Currency.USD: return "US Dollar";
+                case Currency.Free: return "Free";
+                default: return currency.ToString();
+            }
         }
 
         /// <summary>
@@ -271,7 +266,8 @@ namespace Deskillz.Match
         /// </summary>
         public static bool IsStablecoin(this Currency currency)
         {
-            return currency == Currency.USDT || currency == Currency.USDC;
+            return currency == Currency.USDT_BSC || currency == Currency.USDT_TRON
+                || currency == Currency.USDC_BSC || currency == Currency.USDC_TRON;
         }
 
         /// <summary>
@@ -279,13 +275,7 @@ namespace Deskillz.Match
         /// </summary>
         public static int GetDecimalPrecision(this Currency currency)
         {
-            return currency switch
-            {
-                Currency.BTC => 8,
-                Currency.ETH => 6,
-                Currency.SOL => 4,
-                _ => 2
-            };
+            return currency == Currency.BNB ? 6 : 2;
         }
 
         /// <summary>
@@ -340,7 +330,7 @@ namespace Deskillz.Match
         {
             if (playerCount <= 0) return Array.Empty<decimal>();
 
-            var netPool = prizePool * (1 - platformFeePercent / 100f);
+            var netPool = prizePool * (decimal)(1 - platformFeePercent / 100f);
 
             // Standard distribution based on placement
             // 1st: 60%, 2nd: 25%, 3rd: 10%, 4th: 5% (for 4+ players)

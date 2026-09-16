@@ -23,7 +23,7 @@ namespace Deskillz
         // API ENDPOINTS
         // =====================================================================
         
-        private static string BaseUrl => DeskillzConfig.Instance?.ApiBaseUrl ?? "https://api.deskillz.games";
+        private static string BaseUrl => DeskillzConfig.Instance?.ApiBaseUrl ?? DeskillzConfig.PLATFORM_API_HOST;
         
         private const string REGISTER_ENDPOINT = "/api/v1/auth/register";
         private const string LOGIN_ENDPOINT = "/api/v1/auth/login";

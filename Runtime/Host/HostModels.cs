@@ -12,31 +12,7 @@ namespace Deskillz.Host
     // =========================================================================
     // ENUMS
     // =========================================================================
-
-    /// <summary>
-    /// Host tier levels based on performance
-    /// </summary>
-    public enum HostTier
-    {
-        /// <summary>Bronze: 2-4 players (Esports) or $0-$100/month (Social)</summary>
-        Bronze = 0,
-
-        /// <summary>Silver: 5-10 players (Esports) or $101-$500/month (Social)</summary>
-        Silver = 1,
-
-        /// <summary>Gold: 11-25 players (Esports) or $501-$2,000/month (Social)</summary>
-        Gold = 2,
-
-        /// <summary>Platinum: 26-50 players (Esports) or $2,001-$10,000/month (Social)</summary>
-        Platinum = 3,
-
-        /// <summary>Diamond: 51-100 players (Esports) or $10,001-$50,000/month (Social)</summary>
-        Diamond = 4,
-
-        /// <summary>Elite: 100+ players (Esports) or $50,000+/month (Social)</summary>
-        Elite = 5
-    }
-
+    // [P1-3.7.0 fixC] HostTier is defined once in Deskillz (DeskillzEnums.cs); the duplicate here was removed
     /// <summary>
     /// Badge category types
     /// </summary>

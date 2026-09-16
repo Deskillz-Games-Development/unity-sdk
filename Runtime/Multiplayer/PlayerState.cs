@@ -89,6 +89,9 @@ namespace Deskillz.Multiplayer
         /// <summary>
         /// Set a custom state value.
         /// </summary>
+        /// <summary>Store an arbitrary payload as the "data" custom entry. [P1-3.7.0 fixC]</summary>
+        public void SetCustomData<T>(T value) => SetCustom("data", value);
+
         public void SetCustom<T>(string key, T value)
         {
             _customValues ??= new Dictionary<string, object>();

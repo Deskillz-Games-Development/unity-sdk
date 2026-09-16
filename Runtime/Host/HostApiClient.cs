@@ -169,7 +169,7 @@ namespace Deskillz.Host
         {
             DeskillzManager.Instance.StartCoroutine(
                 GetRequest<BadgeListResponse>(
-                    $"{HOST_ENDPOINT}/badges/available",
+                    $"{HOST_ENDPOINT}/badges/all", // [P1-3.7.0]
                     response => onSuccess?.Invoke(response?.badges ?? new List<HostBadge>()),
                     onError
                 )
@@ -192,7 +192,7 @@ namespace Deskillz.Host
 
             DeskillzManager.Instance.StartCoroutine(
                 GetRequest<TierConfigResponse>(
-                    $"{HOST_ENDPOINT}/tiers?type={typeParam}",
+                    $"{HOST_ENDPOINT}/tier/{typeParam}",
                     response => onSuccess?.Invoke(response?.tiers ?? new List<HostTierConfig>()),
                     onError
                 )
@@ -209,7 +209,7 @@ namespace Deskillz.Host
         {
             DeskillzManager.Instance.StartCoroutine(
                 GetRequest<TierHistoryResponse>(
-                    $"{HOST_ENDPOINT}/tiers/history?limit={limit}",
+                    $"{HOST_ENDPOINT}/level",
                     response => onSuccess?.Invoke(response?.history ?? new List<TierHistoryEntry>()),
                     onError
                 )
@@ -267,7 +267,7 @@ namespace Deskillz.Host
         {
             DeskillzManager.Instance.StartCoroutine(
                 GetRequest<HostStats>(
-                    $"{HOST_ENDPOINT}/stats",
+                    $"{HOST_ENDPOINT}/dashboard",
                     onSuccess,
                     onError
                 )
@@ -341,7 +341,7 @@ namespace Deskillz.Host
         {
             DeskillzManager.Instance.StartCoroutine(
                 PutRequest<EmptyResponse>(
-                    $"{HOST_ENDPOINT}/notifications/{notificationId}/read",
+                    $"{HOST_ENDPOINT}/notifications",
                     "{}",
                     _ => onSuccess?.Invoke(),
                     onError
@@ -358,7 +358,7 @@ namespace Deskillz.Host
         {
             DeskillzManager.Instance.StartCoroutine(
                 PutRequest<EmptyResponse>(
-                    $"{HOST_ENDPOINT}/notifications/read-all",
+                    $"{HOST_ENDPOINT}/notifications",
                     "{}",
                     _ => onSuccess?.Invoke(),
                     onError
@@ -452,7 +452,7 @@ namespace Deskillz.Host
 
         private static string GetFullUrl(string endpoint)
         {
-            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? "https://api.deskillz.games";
+            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? DeskillzConfig.PLATFORM_API_HOST;
             return $"{baseUrl}{endpoint}";
         }
 

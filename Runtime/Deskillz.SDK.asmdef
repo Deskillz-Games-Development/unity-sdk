@@ -1,7 +1,10 @@
 {
     "name": "Deskillz.SDK",
     "rootNamespace": "Deskillz",
-    "references": [],
+    "references": [
+        "Unity.TextMeshPro",
+        "UnityEngine.UI"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

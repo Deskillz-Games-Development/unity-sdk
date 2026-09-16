@@ -21,12 +21,12 @@ namespace Deskillz
         /// <summary>
         /// Current SDK version.
         /// </summary>
-        public const string SDK_VERSION = "3.5.2";
+        public const string SDK_VERSION = "3.7.0"; // [P1-3.7.0]
 
         /// <summary>
         /// Minimum supported Unity version.
         /// </summary>
-        public const string MIN_UNITY_VERSION = "2020.3";
+        public const string MIN_UNITY_VERSION = "6000.0";
 
         // =============================================================================
         // API CONFIGURATION
@@ -41,7 +41,13 @@ namespace Deskillz
         [SerializeField] private string _gameId = "";
 
         [Tooltip("Environment to connect to")]
-        [SerializeField] private Environment _environment = Environment.Sandbox;
+        [SerializeField] private Environment _environment = Environment.Production;
+
+        [Tooltip("Optional. Override the API origin (e.g. https://my-backend.example.com). Leave empty to use the Deskillz platform host.")]
+        [SerializeField] private string _apiHostOverride = "";
+
+        [Tooltip("Currency code used when a room or match does not specify one (see /api/v1/wallet/currencies)")]
+        [SerializeField] private string _defaultCurrency = "USDT";
 
         /// <summary>
         /// Your Deskillz API key.
@@ -57,6 +63,9 @@ namespace Deskillz
         /// Current environment.
         /// </summary>
         public Environment Environment => _environment;
+
+        /// <summary>Default currency code for rooms/matches.</summary>
+        public string DefaultCurrency => string.IsNullOrWhiteSpace(_defaultCurrency) ? "USDT" : _defaultCurrency.Trim();
 
         // =============================================================================
         // GAME CONFIGURATION
@@ -214,7 +223,7 @@ namespace Deskillz
         [SerializeField] private bool _useBuiltInUI = true;
 
         [Tooltip("Theme for built-in UI")]
-        [SerializeField] private DeskillzTheme _theme;
+        [SerializeField] private ScriptableObject _theme; // [P1-3.7.0 fixC] typed loosely: the built-in UI lives outside the core assembly
 
         /// <summary>
         /// Whether to use built-in UI.
@@ -224,7 +233,7 @@ namespace Deskillz
         /// <summary>
         /// UI theme configuration.
         /// </summary>
-        public DeskillzTheme Theme => _theme;
+        public ScriptableObject Theme => _theme;
 
         // =============================================================================
         // NETWORK CONFIGURATION
@@ -259,78 +268,36 @@ namespace Deskillz
         public int MaxReconnectAttempts => _maxReconnectAttempts;
 
         // =============================================================================
-        // URL ENDPOINTS
+        // URL ENDPOINTS  [P1-3.7.0]
+        // One origin serves REST (/api/v1) and Socket.IO (/socket.io). Production
+        // and Sandbox both point at the platform API the six hosted games use;
+        // Sandbox is kept for inspector compatibility (there is no separate host).
         // =============================================================================
 
-       /// <summary>
-        /// Base API URL for current environment.
-        /// Includes /api/v1 prefix. Used by DeskillzNetwork.
-        /// </summary>
-        public string BaseUrl
+        public const string PLATFORM_API_HOST = "https://newdeskillzgames-production.up.railway.app";
+        public const string DEVELOPMENT_API_HOST = "http://localhost:3001";
+
+        /// <summary>API origin without any path (scheme + host).</summary>
+        public string ApiHost
         {
             get
             {
-                return _environment switch
-                {
-                    Environment.Production => "https://api.deskillz.games/api/v1",
-                    Environment.Sandbox => "https://sandbox-api.deskillz.games/api/v1",
-                    Environment.Development => "http://localhost:3001/api/v1",
-                    _ => "https://sandbox-api.deskillz.games/api/v1"
-                };
+                if (!string.IsNullOrWhiteSpace(_apiHostOverride)) return _apiHostOverride.Trim().TrimEnd('/');
+                return _environment == Environment.Development ? DEVELOPMENT_API_HOST : PLATFORM_API_HOST;
             }
         }
 
-        /// <summary>
-        /// Root API URL without /api/v1 suffix.
-        /// Used by ApiClient classes that include the prefix in endpoint constants.
-        /// </summary>
-        public string ApiBaseUrl
-        {
-            get
-            {
-                return _environment switch
-                {
-                    Environment.Production => "https://api.deskillz.games",
-                    Environment.Sandbox => "https://sandbox-api.deskillz.games",
-                    Environment.Development => "http://localhost:3001",
-                    _ => "https://sandbox-api.deskillz.games"
-                };
-            }
-        }
+        /// <summary>Base API URL including the /api/v1 prefix. Used by DeskillzNetwork.</summary>
+        public string BaseUrl => ApiHost + "/api/v1";
 
-        /// <summary>
-        /// Auth API URL (same base, different prefix for auth endpoints).
-        /// </summary>
-        public string AuthUrl
-        {
-            get
-            {
-                return _environment switch
-                {
-                    Environment.Production => "https://api.deskillz.games/api/v1/auth",
-                    Environment.Sandbox => "https://sandbox-api.deskillz.games/api/v1/auth",
-                    Environment.Development => "http://localhost:3001/api/v1/auth",
-                    _ => "https://sandbox-api.deskillz.games/api/v1/auth"
-                };
-            }
-        }
+        /// <summary>Root API URL without /api/v1 (ApiClient classes include the prefix in their constants).</summary>
+        public string ApiBaseUrl => ApiHost;
 
-        /// <summary>
-        /// WebSocket URL for current environment.
-        /// </summary>
-        public string WebSocketUrl
-        {
-            get
-            {
-                return _environment switch
-                {
-                    Environment.Production => "wss://ws.deskillz.games",
-                    Environment.Sandbox => "wss://sandbox-ws.deskillz.games",
-                    Environment.Development => "ws://localhost:3001",
-                    _ => "wss://sandbox-ws.deskillz.games"
-                };
-            }
-        }
+        /// <summary>Auth API URL.</summary>
+        public string AuthUrl => BaseUrl + "/auth";
+
+        /// <summary>Socket.IO origin (http/https; the client upgrades to ws/wss itself).</summary>
+        public string WebSocketUrl => ApiHost;
 
         // =============================================================================
         // DEEP LINK CONFIGURATION

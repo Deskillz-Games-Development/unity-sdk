@@ -366,7 +366,7 @@ namespace Deskillz.Multiplayer
         /// <summary>
         /// Get time since match started.
         /// </summary>
-        public static float MatchTime => Deskillz.Match.MatchController.Instance?.TimeElapsed ?? 0f;
+        public static float MatchTime => global::Deskillz.Match.MatchController.Instance /* [P1-3.7.0 fixC] */?.TimeElapsed ?? 0f;
 
         /// <summary>
         /// Get local to server time offset.

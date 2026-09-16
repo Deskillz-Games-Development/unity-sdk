@@ -295,11 +295,11 @@ namespace Deskillz
         }
 
         /// <summary>Parse BookingStatus to BookingStatus enum</summary>
-        public Deskillz.BookingStatus GetBookingStatus()
+        public global::Deskillz.BookingStatus GetBookingStatus()
         {
-            if (System.Enum.TryParse<Deskillz.BookingStatus>(BookingStatus, true, out var result))
+            if (System.Enum.TryParse<global::Deskillz.BookingStatus>(BookingStatus, true, out var result))
                 return result;
-            return Deskillz.BookingStatus.REGISTERED;
+            return global::Deskillz.BookingStatus.REGISTERED;
         }
 
         public override string ToString() => $"EnrollmentState({TournamentId}, {Status}, Booking: {BookingStatus})";

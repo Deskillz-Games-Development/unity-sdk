@@ -6,6 +6,7 @@
 using System;
 using System.Collections;
 using UnityEngine;
+using Deskillz.Multiplayer; // [P1-3.7.0 fixB]
 
 namespace Deskillz
 {
@@ -176,9 +177,8 @@ namespace Deskillz
             // Broadcast to other players in real-time matches
             if (CurrentMatch.IsRealtime && Network?.IsConnected == true)
             {
-                var message = NetworkMessage.Create(MessageType.StateSync, new { score });
-                message.SenderId = CurrentPlayer.Id;
-                Network.Send(message);
+                // [P1-3.7.0] relay live score to the other seats (game:state via match:relay)
+                Network.Relay("game:state", new { playerId = CurrentPlayer.Id, score });
             }
         }
 
@@ -241,9 +241,18 @@ namespace Deskillz
 
             if (!TestMode)
             {
+                // [P1-3.7.0] reports are disputes: POST /api/v1/disputes
+                var tournamentId = ScoreSigner.CurrentTournamentId();
                 Manager.Run(Network.Post<object>(
-                    "/sdk/report",
-                    new { playerId, reason, matchId = CurrentMatch?.MatchId },
+                    "/disputes",
+                    new
+                    {
+                        disputeType = string.IsNullOrEmpty(tournamentId) ? "QUICK_PLAY" : "TOURNAMENT",
+                        tournamentId,
+                        matchId = CurrentMatch?.MatchId,
+                        reason,
+                        description = $"Player report against {playerId}: {reason}"
+                    },
                     _ => DeskillzLogger.Info("Player reported successfully"),
                     error => DeskillzLogger.Error($"Failed to report player: {error.Message}")
                 ));
@@ -313,15 +322,13 @@ namespace Deskillz
             /// </summary>
             public static void SendMessage<T>(T data)
             {
+                // [P1-3.7.0 fixB] broadcast to the other seats via match:relay (game:action)
                 if (!IsConnected)
                 {
                     DeskillzLogger.Warning("Cannot send message: not connected");
                     return;
                 }
-
-                var message = NetworkMessage.Create(MessageType.Custom, data);
-                message.SenderId = CurrentPlayer?.Id;
-                Network.Send(message);
+                Network.Relay("game:action", new { senderId = CurrentPlayer?.Id, data });
             }
 
             /// <summary>
@@ -329,15 +336,13 @@ namespace Deskillz
             /// </summary>
             public static void SendToPlayer<T>(string playerId, T data)
             {
+                // [P1-3.7.0 fixB] the relay is room-wide; receivers filter on targetId
                 if (!IsConnected)
                 {
                     DeskillzLogger.Warning("Cannot send message: not connected");
                     return;
                 }
-
-                var message = NetworkMessage.Create(MessageType.Custom, data, playerId);
-                message.SenderId = CurrentPlayer?.Id;
-                Network.Send(message);
+                Network.Relay("game:action", new { senderId = CurrentPlayer?.Id, targetId = playerId, data });
             }
 
             /// <summary>
@@ -362,19 +367,14 @@ namespace Deskillz
             public static void SetLocalState<T>(T data)
             {
                 if (!IsConnected) return;
-
                 var state = new PlayerState
                 {
                     PlayerId = CurrentPlayer?.Id,
                     Score = CurrentMatch?.LocalPlayerScore ?? 0
                 };
                 state.SetCustomData(data);
-
                 DeskillzCache.Set($"player_state_{CurrentPlayer?.Id}", state);
-
-                var message = NetworkMessage.Create(MessageType.StateSync, state);
-                message.SenderId = CurrentPlayer?.Id;
-                Network.Send(message);
+                Network.Relay("game:state", state); // [P1-3.7.0 fixB]
             }
         }
 
@@ -385,268 +385,7 @@ namespace Deskillz
         /// <summary>
         /// Custom stage/room functionality.
         /// </summary>
-        public static class Stage
-        {
-            /// <summary>
-            /// Current stage data (if in a stage).
-            /// </summary>
-            public static StageData CurrentStage => CurrentMatch?.Stage;
-
-            /// <summary>
-            /// Whether currently in a custom stage.
-            /// </summary>
-            public static bool IsInStage => CurrentStage != null;
-
-            /// <summary>
-            /// Whether local player is the stage admin.
-            /// </summary>
-            public static bool IsAdmin => CurrentStage?.IsLocalPlayerAdmin ?? false;
-
-            /// <summary>
-            /// Create a new custom stage.
-            /// </summary>
-            public static void Create(StageConfig config, Action<StageData> onSuccess = null, Action<DeskillzError> onError = null)
-            {
-                if (!IsReady)
-                {
-                    onError?.Invoke(new DeskillzError(ErrorCode.NotInitialized, "SDK not ready"));
-                    return;
-                }
-
-                if (!config.IsValid(out var validationError))
-                {
-                    onError?.Invoke(new DeskillzError(ErrorCode.Unknown, validationError));
-                    return;
-                }
-
-                if (TestMode)
-                {
-                    Manager.Run(SimulateStageCreation(config, onSuccess));
-                }
-                else
-                {
-                    Manager.Run(Network.Post<StageData>(
-                        "/sdk/stage/create",
-                        config,
-                        stage =>
-                        {
-                            HandleStageJoined(stage);
-                            onSuccess?.Invoke(stage);
-                        },
-                        onError
-                    ));
-                }
-            }
-
-            /// <summary>
-            /// Join a stage by invite code.
-            /// </summary>
-            public static void Join(string code, Action<StageData> onSuccess = null, Action<DeskillzError> onError = null)
-            {
-                if (!IsReady)
-                {
-                    onError?.Invoke(new DeskillzError(ErrorCode.NotInitialized, "SDK not ready"));
-                    return;
-                }
-
-                if (string.IsNullOrWhiteSpace(code))
-                {
-                    onError?.Invoke(new DeskillzError(ErrorCode.InvalidStageCode, "Invalid stage code"));
-                    return;
-                }
-
-                if (TestMode)
-                {
-                    onError?.Invoke(new DeskillzError(ErrorCode.StageNotFound, "Stages not available in test mode"));
-                }
-                else
-                {
-                    Manager.Run(Network.Post<StageData>(
-                        "/sdk/stage/join",
-                        new { code = code.ToUpper().Trim() },
-                        stage =>
-                        {
-                            HandleStageJoined(stage);
-                            onSuccess?.Invoke(stage);
-                        },
-                        onError
-                    ));
-                }
-            }
-
-            /// <summary>
-            /// Leave current stage.
-            /// </summary>
-            public static void Leave()
-            {
-                if (!IsInStage) return;
-
-                DeskillzLogger.LogEvent("Leaving stage", CurrentStage.Name);
-
-                if (!TestMode)
-                {
-                    Manager.Run(Network.Post<object>(
-                        "/sdk/stage/leave",
-                        new { stageId = CurrentStage.StageId },
-                        _ => { },
-                        error => DeskillzLogger.Error($"Failed to leave stage: {error.Message}")
-                    ));
-                }
-
-                Network?.Disconnect();
-                DeskillzEvents.RaiseStageLeft();
-            }
-
-            /// <summary>
-            /// Get players in current stage.
-            /// </summary>
-            public static StagePlayer[] GetPlayers()
-            {
-                return CurrentStage?.Players?.ToArray() ?? Array.Empty<StagePlayer>();
-            }
-
-            /// <summary>
-            /// Invite a player to the stage (by player ID).
-            /// </summary>
-            public static void Invite(string playerId)
-            {
-                if (!IsInStage || !IsAdmin) return;
-
-                Manager.Run(Network.Post<object>(
-                    "/sdk/stage/invite",
-                    new { stageId = CurrentStage.StageId, playerId },
-                    _ => DeskillzLogger.Info($"Invited player {playerId}"),
-                    error => DeskillzLogger.Error($"Failed to invite: {error.Message}")
-                ));
-            }
-
-            /// <summary>
-            /// Kick a player from the stage (Admin only).
-            /// </summary>
-            public static void Kick(string playerId)
-            {
-                if (!IsInStage || !IsAdmin) return;
-
-                Manager.Run(Network.Post<object>(
-                    "/sdk/stage/kick",
-                    new { stageId = CurrentStage.StageId, playerId },
-                    _ => DeskillzLogger.Info($"Kicked player {playerId}"),
-                    error => DeskillzLogger.Error($"Failed to kick: {error.Message}")
-                ));
-            }
-
-            /// <summary>
-            /// Start the match (Admin only).
-            /// </summary>
-            public static void StartMatch()
-            {
-                if (!IsInStage || !IsAdmin) return;
-
-                Manager.Run(Network.Post<MatchData>(
-                    "/sdk/stage/start",
-                    new { stageId = CurrentStage.StageId },
-                    match =>
-                    {
-                        Manager.UpdateMatch(match);
-                        DeskillzEvents.RaiseStageMatchStarting(CurrentStage);
-                    },
-                    error => DeskillzLogger.Error($"Failed to start match: {error.Message}")
-                ));
-            }
-
-            /// <summary>
-            /// Update stage configuration (Admin only).
-            /// </summary>
-            public static void UpdateConfig(StageConfig config)
-            {
-                if (!IsInStage || !IsAdmin) return;
-
-                if (!config.IsValid(out var error))
-                {
-                    DeskillzLogger.Error($"Invalid config: {error}");
-                    return;
-                }
-
-                Manager.Run(Network.Post<StageData>(
-                    "/sdk/stage/update",
-                    new { stageId = CurrentStage.StageId, config },
-                    stage => DeskillzEvents.RaiseStageUpdated(stage),
-                    err => DeskillzLogger.Error($"Failed to update stage: {err.Message}")
-                ));
-            }
-
-            private static void HandleStageJoined(StageData stage)
-            {
-                // Create match data for the stage
-                var match = new MatchData
-                {
-                    MatchId = $"stage_{stage.StageId}",
-                    GameId = Config.GameId,
-                    Mode = MatchMode.CustomStage,
-                    Status = MatchStatus.Pending,
-                    EntryFee = stage.EntryFee,
-                    Currency = stage.Currency,
-                    TimeLimitSeconds = stage.TimeLimitSeconds,
-                    Rounds = stage.Rounds,
-                    Stage = stage
-                };
-
-                Manager.UpdateMatch(match);
-                Network?.Connect(stage.StageId);
-                DeskillzEvents.RaiseStageJoined(stage);
-            }
-
-            private static IEnumerator SimulateStageCreation(StageConfig config, Action<StageData> onSuccess)
-            {
-                yield return new WaitForSeconds(0.5f);
-
-                var stage = new StageData
-                {
-                    StageId = "test_stage_" + Guid.NewGuid().ToString("N").Substring(0, 8),
-                    InviteCode = GenerateInviteCode(),
-                    Name = config.Name,
-                    CreatorId = CurrentPlayer.Id,
-                    AdminId = CurrentPlayer.Id,
-                    Visibility = config.Visibility,
-                    MaxPlayers = config.MaxPlayers,
-                    CurrentPlayers = 1,
-                    EntryFee = config.EntryFee,
-                    Currency = config.Currency,
-                    Rounds = config.Rounds,
-                    TimeLimitSeconds = config.TimeLimitSeconds,
-                    CreatedAt = DateTime.UtcNow,
-                    IsWaiting = true,
-                    IsLocalPlayerAdmin = true
-                };
-
-                stage.Players.Add(new StagePlayer
-                {
-                    PlayerId = CurrentPlayer.Id,
-                    Username = CurrentPlayer.Username,
-                    IsAdmin = true,
-                    IsLocalPlayer = true,
-                    IsReady = true,
-                    JoinedAt = DateTime.UtcNow
-                });
-
-                HandleStageJoined(stage);
-                onSuccess?.Invoke(stage);
-            }
-
-            private static string GenerateInviteCode()
-            {
-                const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-                var code = new char[8];
-                var random = new System.Random();
-                for (int i = 0; i < 8; i++)
-                {
-                    code[i] = chars[random.Next(chars.Length)];
-                    if (i == 3) code[i] = '-'; // Format: ABCD-1234
-                }
-                return new string(code);
-            }
-        }
-
+        // [P1-3.7.0 fixC] the obsolete Stage facade left with the Stage module (see Runtime/Legacy~)
         // =============================================================================
         // UI (Nested Class)
         // =============================================================================
@@ -724,32 +463,19 @@ namespace Deskillz
 
         private static IEnumerator SubmitScoreToServer(int score)
         {
-            yield return Network.Post<object>(
-                "/sdk/match/score",
-                new
-                {
-                    matchId = CurrentMatch.MatchId,
-                    score,
-                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                },
-                _ => DeskillzEvents.RaiseScoreSubmitted(score),
+            // [P1-3.7.0] HMAC-signed final score -> POST /api/v1/tournaments/:id/score
+            var matchId = CurrentMatch.MatchId;
+            yield return ScoreSigner.SubmitTournamentScore(Network, matchId, score,
+                () => DeskillzEvents.RaiseScoreSubmitted(score),
                 error =>
                 {
                     DeskillzLogger.Error($"Score submission failed: {error.Message}");
-                    
-                    // Queue for retry if recoverable
                     if (error.IsRecoverable)
                     {
-                        DeskillzCache.QueuePendingScore(
-                            CurrentMatch.MatchId,
-                            score,
-                            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                        );
+                        DeskillzCache.QueuePendingScore(matchId, score, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
                     }
-                    
                     DeskillzEvents.RaiseScoreSubmissionFailed(error);
-                }
-            );
+                });
         }
 
         private static IEnumerator SimulateMatchEnd()
@@ -789,21 +515,22 @@ namespace Deskillz
 
         private static IEnumerator EndMatchOnServer()
         {
-            yield return Network.Post<MatchResult>(
-                "/sdk/match/end",
-                new
-                {
-                    matchId = CurrentMatch.MatchId,
-                    finalScore = CurrentMatch.LocalPlayerScore,
-                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                },
-                result => Manager.EndCurrentMatch(result),
-                error =>
-                {
-                    DeskillzLogger.Error($"Failed to end match: {error.Message}");
-                    DeskillzEvents.RaiseMatchCancelled(error);
-                }
-            );
+            // [P1-3.7.0] There is no "end match" endpoint: the final score submit is the
+            // terminal call and the platform settles the table (results arrive via
+            // tournament:* / match:* socket events and the site). Close locally.
+            var result = new MatchResult
+            {
+                MatchId = CurrentMatch.MatchId,
+                Outcome = MatchOutcome.Pending,
+                FinalScore = CurrentMatch.LocalPlayerScore,
+                PrizeWon = 0,
+                Currency = CurrentMatch.Currency,
+                DurationSeconds = CurrentMatch.StartTime.HasValue
+                    ? (float)(DateTime.UtcNow - CurrentMatch.StartTime.Value).TotalSeconds
+                    : 0
+            };
+            Manager.EndCurrentMatch(result);
+            yield break;
         }
     }
 

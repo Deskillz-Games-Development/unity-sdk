@@ -46,8 +46,8 @@ namespace Deskillz
         // =============================================================================
 
         [Header("Server Configuration")]
-        [SerializeField] private string _lobbyApiUrl = "https://api.deskillz.games";
-        [SerializeField] private string _socketUrl = "wss://api.deskillz.games/lobby";
+        [SerializeField] private string _lobbyApiUrl = DeskillzConfig.PLATFORM_API_HOST;
+        [SerializeField] private string _socketUrl = DeskillzConfig.PLATFORM_API_HOST;
 
         [Header("Connection Settings")]
         [SerializeField] private float _heartbeatInterval = 30f;

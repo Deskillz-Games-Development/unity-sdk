@@ -82,7 +82,7 @@ namespace Deskillz
                 }
             }
             
-            Debug.LogError(formattedMessage);
+            UnityEngine.Debug.LogError(formattedMessage);
         }
 
         /// <summary>
@@ -100,7 +100,7 @@ namespace Deskillz
         public static void Warning(string message)
         {
             if (_logLevel < LogLevel.Warning) return;
-            Debug.LogWarning(FormatMessage("WARN", message));
+            UnityEngine.Debug.LogWarning(FormatMessage("WARN", message));
         }
 
         /// <summary>
@@ -118,7 +118,7 @@ namespace Deskillz
         public static void Info(string message)
         {
             if (_logLevel < LogLevel.Info) return;
-            Debug.Log(FormatMessage("INFO", message));
+            UnityEngine.Debug.Log(FormatMessage("INFO", message));
         }
 
         /// <summary>
@@ -215,7 +215,7 @@ namespace Deskillz
             }
             else
             {
-                Debug.LogWarning(FormatMessage("HTTP", sb.ToString()));
+                UnityEngine.Debug.LogWarning(FormatMessage("HTTP", sb.ToString()));
             }
         }
 

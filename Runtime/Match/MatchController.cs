@@ -619,67 +619,23 @@ namespace Deskillz.Match
 
         private IEnumerator SubmitScoreToServer(int score, bool isCheckpoint)
         {
-            if (Deskillz.TestMode)
+            // [P1-3.7.0] checkpoints are local; final scores go through ScoreSigner
+            if (Deskillz.TestMode || isCheckpoint)
             {
-                DeskillzLogger.LogScore(isCheckpoint ? "Checkpoint" : "Final", score, "(Test Mode)");
-                if (!isCheckpoint)
-                {
-                    DeskillzEvents.RaiseScoreSubmitted(score);
-                }
+                DeskillzLogger.LogScore(isCheckpoint ? "Checkpoint" : "Final", score, Deskillz.TestMode ? "(Test Mode)" : "(local)");
+                if (!isCheckpoint) DeskillzEvents.RaiseScoreSubmitted(score);
                 yield break;
             }
-
             var network = DeskillzManager.Instance?.Network;
             if (network == null) yield break;
-
-            var endpoint = isCheckpoint ? "/sdk/match/score/checkpoint" : "/sdk/match/score";
-            var payload = new
-            {
-                matchId = _matchData?.MatchId,
-                score,
-                round = CurrentRound,
-                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                isCheckpoint
-            };
-
-            bool completed = false;
             DeskillzError error = null;
-
-            yield return network.Post<object>(
-                endpoint,
-                payload,
-                _ =>
-                {
-                    completed = true;
-                    if (!isCheckpoint)
-                    {
-                        DeskillzEvents.RaiseScoreSubmitted(score);
-                    }
-                },
-                err =>
-                {
-                    completed = true;
-                    error = err;
-                }
-            );
-
+            yield return ScoreSigner.SubmitTournamentScore(network, _matchData?.MatchId, score,
+                () => DeskillzEvents.RaiseScoreSubmitted(score),
+                err => error = err);
             if (error != null)
             {
                 DeskillzLogger.Error($"Score submission failed: {error.Message}");
-                
-                // Queue for retry if checkpoint
-                if (isCheckpoint && error.IsRecoverable)
-                {
-                    DeskillzCache.QueuePendingScore(
-                        _matchData?.MatchId ?? "unknown",
-                        score,
-                        DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                    );
-                }
-                else if (!isCheckpoint)
-                {
-                    DeskillzEvents.RaiseScoreSubmissionFailed(error);
-                }
+                DeskillzEvents.RaiseScoreSubmissionFailed(error);
             }
         }
 

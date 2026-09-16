@@ -543,7 +543,7 @@ namespace Deskillz.Multiplayer
 
             DeskillzLogger.Debug($"Player joined: {message.SenderId}");
             OnPlayerJoined?.Invoke(player);
-            DeskillzEvents.RaisePlayerJoined(message.SenderId);
+            DeskillzEvents.RaisePlayerJoined(new MatchPlayer { PlayerId = message.SenderId, IsConnected = true }); // [P1-3.7.0 fixC]
         }
 
         private void HandlePlayerLeft(NetworkMessage message)
@@ -555,7 +555,7 @@ namespace Deskillz.Multiplayer
 
                 DeskillzLogger.Debug($"Player left: {message.SenderId}");
                 OnPlayerLeft?.Invoke(message.SenderId);
-                DeskillzEvents.RaisePlayerLeft(message.SenderId);
+                DeskillzEvents.RaisePlayerLeft(new MatchPlayer { PlayerId = message.SenderId, IsConnected = false });
             }
         }
 
@@ -591,7 +591,7 @@ namespace Deskillz.Multiplayer
         {
             if (double.TryParse(message.Payload, out var serverTime))
             {
-                _serverTimeOffset = serverTime - Time.realtimeSinceStartup;
+                _serverTimeOffset = (float)(serverTime - Time.realtimeSinceStartup);
                 DeskillzLogger.Debug($"Time synced, offset: {_serverTimeOffset:F3}s");
             }
         }

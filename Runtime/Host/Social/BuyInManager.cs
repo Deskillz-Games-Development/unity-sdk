@@ -549,7 +549,7 @@ namespace Deskillz.Social
 
         private static string GetFullUrl(string endpoint)
         {
-            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? "https://api.deskillz.games";
+            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? DeskillzConfig.PLATFORM_API_HOST;
             return $"{baseUrl}{endpoint}";
         }
 

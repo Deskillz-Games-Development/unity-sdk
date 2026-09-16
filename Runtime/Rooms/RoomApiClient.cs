@@ -87,7 +87,7 @@ namespace Deskillz.Rooms
             Action<List<PrivateRoom>> onSuccess,
             Action<RoomError> onError)
         {
-            var endpoint = $"{ROOMS_ENDPOINT}/my-rooms";
+            var endpoint = $"{ROOMS_ENDPOINT}/my"; // [P1-3.7.0]
 
             DeskillzManager.Instance.StartCoroutine(
                 GetRequest<RoomListResponse>(
@@ -312,7 +312,7 @@ namespace Deskillz.Rooms
             Action onSuccess,
             Action<RoomError> onError)
         {
-            var endpoint = $"{ROOMS_ENDPOINT}/{roomId}/request-join";
+            var endpoint = $"{ROOMS_ENDPOINT}/{roomId}/request";
             var json = JsonUtility.ToJson(new JoinRequestRequest { message = message });
 
             DeskillzManager.Instance.StartCoroutine(
@@ -416,7 +416,7 @@ namespace Deskillz.Rooms
 
         private static string GetFullUrl(string endpoint)
         {
-            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? "https://api.deskillz.games";
+            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? DeskillzConfig.PLATFORM_API_HOST;
             return baseUrl.TrimEnd('/') + endpoint;
         }
 

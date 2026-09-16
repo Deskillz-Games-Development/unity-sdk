@@ -224,6 +224,11 @@ namespace Deskillz
             Shutdown();
         }
 
+        private void Update()
+        {
+            global::Deskillz.Realtime.SocketIOClient.PumpAll(); // [P1-3.7.0] deliver socket callbacks on the main thread
+        }
+
         private void OnDestroy()
         {
             if (_instance == this)
@@ -448,9 +453,20 @@ namespace Deskillz
             var validationSuccess = false;
             DeskillzError validationError = null;
 
-            yield return _network.Post<PlayerData>(
-                "/sdk/init",
-                new { gameId = _config.GameId, platform = Application.platform.ToString() },
+            // [P1-3.7.0] /sdk/init does not exist. A launch link authenticates via the
+            // launch-token exchange (ProcessDeepLink); otherwise the game must sign in
+            // (DeskillzAuth) and we load the profile from GET /api/v1/users/me.
+            if (string.IsNullOrEmpty(DeskillzAuth.AccessToken) && LaunchSession.Current == null)
+            {
+                DeskillzLogger.Info("No session yet: waiting for a launch link or DeskillzAuth.Login()");
+                _state = SDKState.Ready;
+                DeskillzEvents.RaiseReady();
+                yield break;
+            }
+            if (!string.IsNullOrEmpty(DeskillzAuth.AccessToken)) _network.SetAuthToken(DeskillzAuth.AccessToken);
+
+            yield return _network.Get<PlayerData>(
+                "/users/me",
                 (player) =>
                 {
                     _currentPlayer = player;
@@ -515,10 +531,18 @@ namespace Deskillz
 
             var deepLinkParams = DeepLinkParams.Parse(url);
 
-            // Validate player token
-            if (!string.IsNullOrEmpty(deepLinkParams.PlayerToken))
+            // [P1-3.7.0] The link carries a single-use launch token, not a JWT: exchange it
+            // (POST /auth/launch/exchange) for an access token + per-launch scoreSecret.
+            if (deepLinkParams.IsLaunch)
             {
-                _network?.SetAuthToken(deepLinkParams.PlayerToken);
+                StartCoroutine(LaunchSession.Exchange(_network, deepLinkParams,
+                    session => StartCoroutine(FinishLaunch(deepLinkParams, session)),
+                    error =>
+                    {
+                        DeskillzLogger.Error($"Launch exchange failed: {error.Message}");
+                        DeskillzEvents.RaiseDeepLinkError(error.Message);
+                    }));
+                return;
             }
 
             // Create match data from deep link
@@ -551,6 +575,42 @@ namespace Deskillz
                     _network?.Connect(_currentMatch.MatchId);
                 }
             }
+        }
+
+        private IEnumerator FinishLaunch(DeepLinkParams p, LaunchSession session)
+        {
+            // [P1-3.7.0] load the launched player's profile, then publish the match
+            var done = false;
+            yield return _network.Get<PlayerData>("/users/me",
+                player => { _currentPlayer = player; _currentPlayer.IsLocalPlayer = true; _currentPlayer.AuthToken = session.AccessToken; session.UserId = player.Id; done = true; },
+                error => { DeskillzLogger.Warning($"users/me after launch failed: {error.Message}"); done = true; });
+            while (!done) yield return null;
+            if (_currentPlayer != null)
+            {
+                DeskillzCache.CachePlayer(_currentPlayer);
+                DeskillzEvents.RaisePlayerAuthenticated(_currentPlayer);
+            }
+            if (_state != SDKState.Ready) { _state = SDKState.Ready; DeskillzEvents.RaiseReady(); }
+
+            _currentMatch = new MatchData
+            {
+                MatchId = session.MatchId,
+                TournamentId = session.TournamentId,
+                GameId = _config.GameId,
+                Mode = p.Mode,
+                Status = MatchStatus.Pending,
+                EntryFee = p.EntryFee,
+                Currency = p.Currency,
+                TimeLimitSeconds = p.TimeLimitSeconds,
+                Rounds = p.Rounds > 0 ? p.Rounds : 1,
+                CurrentRound = 1,
+                ScoreType = p.ScoreType,
+                CustomParams = p.CustomParams
+            };
+            DeskillzCache.CacheMatch(_currentMatch);
+            DeskillzEvents.RaiseMatchReady(_currentMatch);
+            DeskillzLogger.LogMatch("Received", _currentMatch.MatchId, $"Mode: {_currentMatch.Mode} turnTimer={p.TurnTimerSeconds}s");
+            if (_currentMatch.IsRealtime) _network?.Connect(_currentMatch.MatchId);
         }
 
         // =============================================================================
@@ -764,10 +824,11 @@ namespace Deskillz
             {
                 Destroy(gameObject);
             }
-            // -----------------------------------------------------------------------------
-// INSERT new public methods for auth
-// Add after ForceShutdown method
-// -----------------------------------------------------------------------------
+        } // [P1-3.7.0 fixA] ForceShutdown was unclosed in 3.5.2
+
+        // =============================================================================
+        // AUTH CONVENIENCE (forwards to DeskillzAuth)
+        // =============================================================================
 
         /// <summary>
         /// Login with email and password.
@@ -831,10 +892,7 @@ namespace Deskillz
         /// </summary>
         public bool RequireWallet(string reason = "This action requires a connected wallet")
         {
-            return DeskillzAuth.RequireWallet(reason);
-        }
-
-
+            return DeskillzAuth.RequireWallet(reason, null); // [P1-3.7.0 fixC]
         }
     }
 }

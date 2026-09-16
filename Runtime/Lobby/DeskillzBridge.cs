@@ -231,6 +231,16 @@ namespace Deskillz
         // DEEP LINK HANDLERS
         // =============================================================================
 
+        /// <summary>
+        /// Hand a launch payload to the bridge (used by AuthSceneController after sign-in).
+        /// [P1-3.7.0 fixD]
+        /// </summary>
+        public void SetPendingMatch(MatchLaunchData launchData)
+        {
+            if (launchData == null) return;
+            HandleMatchLaunchReceived(launchData);
+        }
+
         private void HandleMatchLaunchReceived(MatchLaunchData launchData)
         {
             DeskillzLogger.LogMatch("Received from lobby", launchData.MatchId);
@@ -247,7 +257,7 @@ namespace Deskillz
                 Currency = launchData.Currency,
                 TimeLimitSeconds = launchData.TimeLimitSeconds,
                 MaxPlayers = launchData.MaxPlayers,
-                IsRealtime = launchData.IsRealtime,
+                // IsRealtime is derived from Mode  [P1-3.7.0 fixC]
                 CustomParams = launchData.CustomParams
             };
 
@@ -438,7 +448,6 @@ namespace Deskillz
                 Currency = currency,
                 TimeLimitSeconds = timeLimitSeconds,
                 MaxPlayers = 2,
-                IsRealtime = mode == MatchMode.Synchronous,
                 IsTestMatch = true
             };
 

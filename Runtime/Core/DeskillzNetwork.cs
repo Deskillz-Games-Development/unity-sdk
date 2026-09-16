@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
+using Deskillz.Realtime; // [P1-3.7.0]
 
 namespace Deskillz
 {
@@ -37,7 +38,8 @@ namespace Deskillz
         private readonly Dictionary<string, string> _defaultHeaders;
         
         // WebSocket state
-        private WebSocketClient _webSocket;
+        private SocketIOClient _socket;
+        private string _currentMatchId;
         private ConnectionState _connectionState = ConnectionState.Disconnected;
         private int _reconnectAttempts;
         private const int MAX_RECONNECT_ATTEMPTS = 5;
@@ -114,7 +116,7 @@ namespace Deskillz
         /// </summary>
         public IEnumerator Post<T>(string endpoint, object body, Action<T> onSuccess, Action<DeskillzError> onError)
         {
-            var json = body != null ? JsonUtility.ToJson(body) : null;
+            var json = DeskillzJson.Serialize(body);
             yield return SendRequest<T>("POST", endpoint, json, onSuccess, onError);
         }
 
@@ -123,7 +125,7 @@ namespace Deskillz
         /// </summary>
         public IEnumerator Put<T>(string endpoint, object body, Action<T> onSuccess, Action<DeskillzError> onError)
         {
-            var json = body != null ? JsonUtility.ToJson(body) : null;
+            var json = DeskillzJson.Serialize(body);
             yield return SendRequest<T>("PUT", endpoint, json, onSuccess, onError);
         }
 
@@ -167,15 +169,7 @@ namespace Deskillz
                         }
                         else
                         {
-                            var response = JsonUtility.FromJson<ApiResponse<T>>(responseBody);
-                            if (response.Success)
-                            {
-                                onSuccess?.Invoke(response.Data);
-                            }
-                            else
-                            {
-                                onError?.Invoke(response.Error ?? new DeskillzError(ErrorCode.Unknown, "Request failed"));
-                            }
+                            onSuccess?.Invoke(DeskillzJson.Deserialize<T>(responseBody));
                         }
                     }
                     catch (Exception ex)
@@ -186,7 +180,7 @@ namespace Deskillz
                 }
                 else
                 {
-                    var error = HandleRequestError(request);
+                    var error = DeskillzJson.WithServerMessage(HandleRequestError(request), responseBody);
 
                     // Retry on transient errors
                     if (error.IsRecoverable && attempt < MAX_RETRIES)
@@ -311,191 +305,171 @@ namespace Deskillz
         }
 
         // =============================================================================
-        // WEBSOCKET METHODS
+        // REALTIME (Socket.IO "/" namespace: match relay)  [P1-3.7.0]
         // =============================================================================
 
-        /// <summary>
-        /// Connect to WebSocket server for real-time features.
-        /// </summary>
+        /// <summary>Connect to the platform socket and, when matchId is given, join that match room.</summary>
         public void Connect(string matchId = null)
         {
-            if (_connectionState == ConnectionState.Connected || 
-                _connectionState == ConnectionState.Connecting)
+            _currentMatchId = matchId ?? _currentMatchId;
+            if (_socket != null && (_connectionState == ConnectionState.Connected || _connectionState == ConnectionState.Connecting))
             {
-                DeskillzLogger.Warning("Already connected or connecting");
+                if (!string.IsNullOrEmpty(matchId) && IsConnected) JoinMatchRoom(matchId);
                 return;
             }
 
             _connectionState = ConnectionState.Connecting;
             DeskillzEvents.RaiseConnectionStateChanged(_connectionState);
 
-            var wsUrl = BuildWebSocketUrl(matchId);
-            
-            _webSocket = new WebSocketClient();
-            _webSocket.OnOpen += OnWebSocketOpen;
-            _webSocket.OnMessage += OnWebSocketMessage;
-            _webSocket.OnError += OnWebSocketError;
-            _webSocket.OnClose += OnWebSocketClose;
-
-            DeskillzLogger.LogWebSocket("Connecting", wsUrl);
-            _webSocket.Connect(wsUrl);
+            if (_socket == null)
+            {
+                _socket = new SocketIOClient(_wsUrl, "/", () => _authToken);
+                _socket.OnConnected += OnSocketConnected;
+                _socket.OnDisconnected += OnSocketDisconnected;
+                _socket.OnError += OnSocketError;
+                _socket.OnEvent += OnSocketEvent;
+            }
+            DeskillzLogger.LogWebSocket("Connecting", _wsUrl + " ns=/");
+            _socket.Connect();
         }
 
-        /// <summary>
-        /// Disconnect from WebSocket server.
-        /// </summary>
+        /// <summary>Disconnect from the platform socket.</summary>
         public void Disconnect()
         {
-            if (_webSocket != null)
+            if (_socket != null)
             {
-                _webSocket.OnOpen -= OnWebSocketOpen;
-                _webSocket.OnMessage -= OnWebSocketMessage;
-                _webSocket.OnError -= OnWebSocketError;
-                _webSocket.OnClose -= OnWebSocketClose;
-                _webSocket.Close();
-                _webSocket = null;
+                _socket.OnConnected -= OnSocketConnected;
+                _socket.OnDisconnected -= OnSocketDisconnected;
+                _socket.OnError -= OnSocketError;
+                _socket.OnEvent -= OnSocketEvent;
+                _socket.Dispose();
+                _socket = null;
             }
-
             _connectionState = ConnectionState.Disconnected;
             _reconnectAttempts = 0;
             DeskillzEvents.RaiseConnectionStateChanged(_connectionState);
         }
 
-        /// <summary>
-        /// Send a message through WebSocket.
-        /// </summary>
-        public void Send(NetworkMessage message)
+        /// <summary>Emit any event on the "/" namespace.</summary>
+        public void Emit(string eventName, object data = null, Action<string> ack = null)
         {
             if (!IsConnected)
             {
-                DeskillzLogger.Warning("Cannot send message: not connected");
+                DeskillzLogger.Warning($"Cannot emit {eventName}: not connected");
                 return;
             }
+            _socket.Emit(eventName, data, ack);
+            DeskillzLogger.LogWebSocket("Sent", eventName);
+        }
 
-            var json = JsonUtility.ToJson(message);
-            _webSocket.Send(json);
-            DeskillzLogger.LogWebSocket("Sent", $"{message.Type}");
+        /// <summary>match:join_room { matchId } -- required before any relay.</summary>
+        public void JoinMatchRoom(string matchId)
+        {
+            _currentMatchId = matchId;
+            Emit("match:join_room", new { matchId }, ack =>
+            {
+                var err = DeskillzJson.GetString(ack, "error");
+                if (!string.IsNullOrEmpty(err))
+                {
+                    DeskillzLogger.Error($"match:join_room refused: {err}");
+                    DeskillzEvents.RaiseError(new DeskillzError(ErrorCode.WebSocketError, "Join match room failed: " + err));
+                }
+                else DeskillzLogger.LogWebSocket("Joined match room", matchId);
+            });
         }
 
         /// <summary>
-        /// Send raw JSON through WebSocket.
+        /// Relay a game event to the other seats via match:relay. gameEvent must be one of
+        /// game:state, game:hand, game:action, game:round-end, game:game-end, game:request-sync,
+        /// game:chat, game:round-ready, game:round-ready-state, game:ping, game:pong.
         /// </summary>
-        public void SendRaw(string json)
+        public void Relay(string gameEvent, object payload)
         {
-            if (!IsConnected)
+            if (string.IsNullOrEmpty(_currentMatchId))
             {
-                DeskillzLogger.Warning("Cannot send message: not connected");
+                DeskillzLogger.Warning("Cannot relay: no match room joined");
                 return;
             }
-
-            _webSocket.Send(json);
-            DeskillzLogger.LogWebSocket("Sent", json);
+            Emit("match:relay", new { matchId = _currentMatchId, @event = gameEvent, payload }, ack =>
+            {
+                var err = DeskillzJson.GetString(ack, "error");
+                if (!string.IsNullOrEmpty(err)) DeskillzLogger.Warning($"match:relay {gameEvent} refused: {err}");
+            });
         }
 
-        private string BuildWebSocketUrl(string matchId)
+        /// <summary>Legacy multiplayer message: relayed as game:state (StateSync) or game:action.</summary>
+        public void Send(global::Deskillz.Multiplayer.NetworkMessage message)
         {
-            var url = _wsUrl;
-            var queryParams = new List<string>();
-
-            if (!string.IsNullOrEmpty(_authToken))
-            {
-                queryParams.Add($"token={Uri.EscapeDataString(_authToken)}");
-            }
-
-            if (!string.IsNullOrEmpty(matchId))
-            {
-                queryParams.Add($"match_id={Uri.EscapeDataString(matchId)}");
-            }
-
-            if (!string.IsNullOrEmpty(_apiKey))
-            {
-                queryParams.Add($"api_key={Uri.EscapeDataString(_apiKey)}");
-            }
-
-            if (queryParams.Count > 0)
-            {
-                url += "?" + string.Join("&", queryParams);
-            }
-
-            return url;
+            if (message == null) return;
+            var ev = IsStateMessage(message.Type) ? "game:state" : "game:action";
+            Relay(ev, message);
         }
 
-        // =============================================================================
-        // WEBSOCKET EVENT HANDLERS
-        // =============================================================================
+        private static bool IsStateMessage(global::Deskillz.Multiplayer.MessageType type) // [P1-3.7.0 fixB]
+        {
+            switch (type)
+            {
+                case global::Deskillz.Multiplayer.MessageType.StateUpdate:
+                case global::Deskillz.Multiplayer.MessageType.FullSync:
+                case global::Deskillz.Multiplayer.MessageType.DeltaSync:
+                case global::Deskillz.Multiplayer.MessageType.RoomState:
+                    return true;
+                default:
+                    return false;
+            }
+        }
 
-        private void OnWebSocketOpen()
+        /// <summary>Send a raw JSON string as a game:action relay payload.</summary>
+        public void SendRaw(string json) => Relay("game:action", json);
+
+        private void OnSocketConnected()
         {
             DeskillzLogger.LogWebSocket("Connected");
             _connectionState = ConnectionState.Connected;
             _reconnectAttempts = 0;
             DeskillzEvents.RaiseConnectionStateChanged(_connectionState);
             DeskillzEvents.RaiseConnected();
+            if (!string.IsNullOrEmpty(_currentMatchId)) JoinMatchRoom(_currentMatchId);
         }
 
-        private void OnWebSocketMessage(string data)
+        private void OnSocketEvent(string eventName, string dataJson)
         {
-            DeskillzLogger.LogWebSocket("Received", data);
-
-            try
+            DeskillzLogger.LogWebSocket("Received", eventName);
+            DeskillzEvents.RaiseSocketMessage(eventName, dataJson);
+            if (eventName.StartsWith("game:"))
             {
-                var message = JsonUtility.FromJson<NetworkMessage>(data);
-                DeskillzEvents.RaiseMessageReceived(message);
-            }
-            catch (Exception ex)
-            {
-                DeskillzLogger.Error("Failed to parse WebSocket message", ex);
+                try
+                {
+                    var message = DeskillzJson.Deserialize<global::Deskillz.Multiplayer.NetworkMessage>(dataJson);
+                    if (message != null) DeskillzEvents.RaiseMessageReceived(message);
+                }
+                catch (Exception)
+                {
+                    // Not every relayed payload is a NetworkMessage; subscribers use OnSocketMessage for raw JSON.
+                }
             }
         }
 
-        private void OnWebSocketError(string error)
+        private void OnSocketError(string error)
         {
-            DeskillzLogger.Error($"WebSocket error: {error}");
+            DeskillzLogger.Error($"Socket error: {error}");
             DeskillzEvents.RaiseError(new DeskillzError(ErrorCode.WebSocketError, error));
         }
 
-        private void OnWebSocketClose(int code, string reason)
+        private void OnSocketDisconnected(string reason)
         {
-            DeskillzLogger.LogWebSocket("Closed", $"Code: {code}, Reason: {reason}");
-            
+            DeskillzLogger.LogWebSocket("Closed", reason);
             var wasConnected = _connectionState == ConnectionState.Connected;
-            _connectionState = ConnectionState.Disconnected;
+            _connectionState = reason == "client" ? ConnectionState.Disconnected : ConnectionState.Reconnecting;
             DeskillzEvents.RaiseConnectionStateChanged(_connectionState);
-            
-            if (wasConnected)
-            {
-                DeskillzEvents.RaiseDisconnected();
-                AttemptReconnect();
-            }
-        }
-
-        private void AttemptReconnect()
-        {
-            if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS)
-            {
-                DeskillzLogger.Error("Max reconnection attempts reached");
-                DeskillzEvents.RaiseReconnectionFailed(
-                    new DeskillzError(ErrorCode.WebSocketError, "Failed to reconnect after multiple attempts", false));
-                return;
-            }
-
-            _reconnectAttempts++;
-            _connectionState = ConnectionState.Reconnecting;
-            DeskillzEvents.RaiseConnectionStateChanged(_connectionState);
-            DeskillzEvents.RaiseReconnecting(_reconnectAttempts);
-
-            DeskillzLogger.Info($"Attempting reconnect in {RECONNECT_DELAY}s (attempt {_reconnectAttempts}/{MAX_RECONNECT_ATTEMPTS})");
-            
-            // Schedule reconnect through DeskillzManager
-            DeskillzManager.Instance?.ScheduleReconnect(RECONNECT_DELAY);
+            if (wasConnected) DeskillzEvents.RaiseDisconnected();
+            if (_connectionState == ConnectionState.Reconnecting) DeskillzEvents.RaiseReconnecting(++_reconnectAttempts);
         }
 
         internal void ExecuteReconnect()
         {
             if (_connectionState != ConnectionState.Reconnecting) return;
-            
-            var matchId = Deskillz.CurrentMatch?.MatchId;
-            Connect(matchId);
+            Connect(_currentMatchId);
         }
 
         // =============================================================================
@@ -505,78 +479,6 @@ namespace Deskillz
         public void Dispose()
         {
             Disconnect();
-        }
-    }
-
-    // =============================================================================
-    // WEBSOCKET CLIENT (Placeholder - would use native WebSocket or library)
-    // =============================================================================
-
-    /// <summary>
-    /// WebSocket client wrapper. In production, this would use a proper WebSocket library.
-    /// </summary>
-    internal class WebSocketClient
-    {
-        public event Action OnOpen;
-        public event Action<string> OnMessage;
-        public event Action<string> OnError;
-        public event Action<int, string> OnClose;
-
-        private bool _isConnected;
-        private string _url;
-
-        public void Connect(string url)
-        {
-            _url = url;
-            
-            // In a real implementation, this would use:
-            // - UnityWebSocket package
-            // - NativeWebSocket package  
-            // - System.Net.WebSockets (Unity 2021+)
-            
-            // For now, simulate connection
-            DeskillzLogger.Debug($"WebSocket connecting to: {url}");
-            
-            // Simulate async connection
-            DeskillzManager.Instance?.StartCoroutine(SimulateConnect());
-        }
-
-        private IEnumerator SimulateConnect()
-        {
-            yield return new WaitForSeconds(0.1f);
-            
-            _isConnected = true;
-            OnOpen?.Invoke();
-        }
-
-        public void Send(string message)
-        {
-            if (!_isConnected)
-            {
-                OnError?.Invoke("Not connected");
-                return;
-            }
-
-            // In real implementation, send through WebSocket
-            DeskillzLogger.Verbose($"WebSocket send: {message}");
-        }
-
-        public void Close()
-        {
-            if (_isConnected)
-            {
-                _isConnected = false;
-                OnClose?.Invoke(1000, "Normal closure");
-            }
-        }
-
-        // Method to simulate receiving a message (for testing)
-        internal void SimulateMessage(string message)
-        {
-            if (_isConnected)
-            {
-                OnMessage?.Invoke(message);
-            }
         }
     }
 }

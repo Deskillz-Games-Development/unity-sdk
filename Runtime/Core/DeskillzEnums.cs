@@ -39,18 +39,7 @@ namespace Deskillz
     // =========================================================================
     // AUTHENTICATION
     // =========================================================================
-
-    /// <summary>
-    /// Authentication state for self-sufficient architecture
-    /// </summary>
-    public enum AuthState
-    {
-        NotAuthenticated,
-        Authenticating,
-        Authenticated,
-        Error
-    }
-
+    // [P1-3.7.0 fixB] AuthState lives in DeskillzAuth.cs (duplicate enum removed)
     /// <summary>
     /// Authentication provider types
     /// </summary>
@@ -558,6 +547,7 @@ namespace Deskillz
         Unauthorized = 400,
         NotAuthenticated = 401,
         InvalidCredentials = 402,
+        AuthenticationFailed = 407, // [P1-3.7.0 fixC]
         AccountLocked = 403,
         EmailNotVerified = 404,
         TokenExpired = 405,

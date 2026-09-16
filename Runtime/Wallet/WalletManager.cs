@@ -38,7 +38,7 @@ namespace Deskillz.Wallet
     }
 
     [Serializable]
-    internal class DepositResponse
+    public class DepositResponse
     {
         public bool success;
         public string transactionId;
@@ -48,7 +48,7 @@ namespace Deskillz.Wallet
     }
 
     [Serializable]
-    internal class WithdrawResponse
+    public class WithdrawResponse
     {
         public bool success;
         public string transactionId;
@@ -146,7 +146,7 @@ namespace Deskillz.Wallet
         {
             DeskillzManager.Instance.StartCoroutine(
                 GetRequest<BalanceListWrapper>(
-                    $"{WALLET_ENDPOINT}/balance",
+                    $"{WALLET_ENDPOINT}/balances", // [P1-3.7.0]
                     wrapper =>
                     {
                         CachedBalances = wrapper?.balances ?? new List<WalletBalanceEntry>();
@@ -172,7 +172,7 @@ namespace Deskillz.Wallet
         {
             DeskillzManager.Instance.StartCoroutine(
                 GetRequest<WalletBalanceEntry>(
-                    $"{WALLET_ENDPOINT}/balance/{currency}",
+                    $"{WALLET_ENDPOINT}/balances/{currency}",
                     onSuccess, onError
                 )
             );
@@ -290,7 +290,7 @@ namespace Deskillz.Wallet
         {
             DeskillzManager.Instance.StartCoroutine(
                 GetRequest<LeaderboardWrapper>(
-                    $"{LEADERBOARD_ENDPOINT}/{gameId}?period={period}&limit={limit}",
+                    $"{LEADERBOARD_ENDPOINT}/game/{gameId}?period={period}&limit={limit}",
                     wrapper => onSuccess?.Invoke(wrapper?.entries ?? new List<LeaderboardEntry>()),
                     onError
                 )
@@ -356,7 +356,7 @@ namespace Deskillz.Wallet
 
         private static string GetFullUrl(string endpoint)
         {
-            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? "https://api.deskillz.games";
+            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? DeskillzConfig.PLATFORM_API_HOST;
             return $"{baseUrl}{endpoint}";
         }
 
