@@ -106,7 +106,7 @@ namespace Deskillz
             {
                 try
                 {
-                    var user = JsonUtility.FromJson<AuthUser>(request.downloadHandler.text);
+                    var user = DeskillzJson.DeserializeRaw<AuthUser>(request.downloadHandler.text);
                     DeskillzLogger.Info($"[SessionManager] SSO authenticated: {user.Username}");
                     OnSSOAuthenticated?.Invoke(user);
                 }
@@ -166,7 +166,7 @@ namespace Deskillz
                     var responseText = request.downloadHandler.text;
                     if (!string.IsNullOrEmpty(responseText) && responseText != "null")
                     {
-                        var session = JsonUtility.FromJson<ActiveSessionPayload>(responseText);
+                        var session = DeskillzJson.DeserializeRaw<ActiveSessionPayload>(responseText);
                         if (session != null && !string.IsNullOrEmpty(session.RoomId))
                         {
                             session.HasActiveSession = true;

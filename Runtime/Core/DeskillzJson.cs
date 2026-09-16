@@ -41,6 +41,13 @@ namespace Deskillz
             return JsonConvert.DeserializeObject<T>(Unwrap(json), InSettings);
         }
 
+        /// <summary>Deserialize WITHOUT the envelope unwrap -- for socket payloads and cached blobs. [P2-3.7.0]</summary>
+        public static T DeserializeRaw<T>(string json)
+        {
+            if (string.IsNullOrEmpty(json)) return default;
+            return JsonConvert.DeserializeObject<T>(json, InSettings);
+        }
+
         /// <summary>Return the inner "data" JSON when the body is { data: ... }, else the body.</summary>
         public static string Unwrap(string json)
         {

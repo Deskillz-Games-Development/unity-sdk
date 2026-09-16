@@ -211,7 +211,7 @@ namespace Deskillz.Social
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<SocialGameSession>(
                     $"{SOCIAL_ENDPOINT}/session/join",
-                    JsonUtility.ToJson(request),
+                    DeskillzJson.Serialize(request),
                     session =>
                     {
                         SetSession(session);
@@ -301,7 +301,7 @@ namespace Deskillz.Social
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<RoundResult>(
                     $"{SOCIAL_ENDPOINT}/round/submit",
-                    JsonUtility.ToJson(request),
+                    DeskillzJson.Serialize(request),
                     result =>
                     {
                         // Update session state
@@ -470,7 +470,7 @@ namespace Deskillz.Social
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<PauseStatusResponse>(
                     $"{SOCIAL_ENDPOINT}/pause/request",
-                    JsonUtility.ToJson(request),
+                    DeskillzJson.Serialize(request),
                     status =>
                     {
                         if (CurrentSession != null)
@@ -517,7 +517,7 @@ namespace Deskillz.Social
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<PauseStatusResponse>(
                     $"{SOCIAL_ENDPOINT}/pause/vote",
-                    JsonUtility.ToJson(request),
+                    DeskillzJson.Serialize(request),
                     status =>
                     {
                         if (CurrentSession != null)
@@ -563,7 +563,7 @@ namespace Deskillz.Social
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<object>(
                     $"{SOCIAL_ENDPOINT}/pause/resume",
-                    JsonUtility.ToJson(new { roomId = CurrentSession.RoomId }),
+                    DeskillzJson.Serialize(new { roomId = CurrentSession.RoomId }),
                     _ =>
                     {
                         if (CurrentSession != null)
@@ -680,7 +680,7 @@ namespace Deskillz.Social
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<Settlement>(
                     $"{SOCIAL_ENDPOINT}/settlement/trigger",
-                    JsonUtility.ToJson(new { sessionId = CurrentSession.Id }),
+                    DeskillzJson.Serialize(new { sessionId = CurrentSession.Id }),
                     settlement =>
                     {
                         if (CurrentSession != null)
@@ -898,7 +898,7 @@ namespace Deskillz.Social
             {
                 try
                 {
-                    var response = JsonUtility.FromJson<ApiResponse<T>>(request.downloadHandler.text);
+                    var response = DeskillzJson.Deserialize<ApiResponse<T>>(request.downloadHandler.text);
                     if (response.success)
                     {
                         onSuccess?.Invoke(response.data);

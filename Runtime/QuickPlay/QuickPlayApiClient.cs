@@ -39,7 +39,7 @@ namespace Deskillz.QuickPlay
                 matchMode = parameters.MatchMode,
                 selectedTarget = parameters.SelectedTarget,
             };
-            var json = JsonUtility.ToJson(body);
+            var json = DeskillzJson.Serialize(body);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<QuickPlayJoinResult>($"{QP_ENDPOINT}/join", json, onSuccess, onError)
             );
@@ -79,7 +79,7 @@ namespace Deskillz.QuickPlay
             Action<QuickPlayError> onError)
         {
             var body = new LaunchMatchRequest { matchSessionId = matchSessionId };
-            var json = JsonUtility.ToJson(body);
+            var json = DeskillzJson.Serialize(body);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<QuickPlayLaunchData>($"{QP_ENDPOINT}/match/launch", json, onSuccess, onError)
             );
@@ -92,7 +92,7 @@ namespace Deskillz.QuickPlay
             Action<QuickPlayError> onError)
         {
             var body = new SubmitScoreRequest { score = score };
-            var json = JsonUtility.ToJson(body);
+            var json = DeskillzJson.Serialize(body);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<QuickPlayScoreResult>(
                     $"{QP_ENDPOINT}/match/{matchId}/score", json, onSuccess, onError)
@@ -137,7 +137,7 @@ namespace Deskillz.QuickPlay
                 currency = parameters.Currency,
                 seatsPerTable = parameters.SeatsPerTable,
             };
-            var json = JsonUtility.ToJson(body);
+            var json = DeskillzJson.Serialize(body);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<CreateSocialQuickPlayResult>(
                     $"{QP_ENDPOINT}/social/create", json, onSuccess, onError)
@@ -150,7 +150,7 @@ namespace Deskillz.QuickPlay
             Action onSuccess,
             Action<QuickPlayError> onError)
         {
-            var json = JsonUtility.ToJson(payload);
+            var json = DeskillzJson.Serialize(payload);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequestVoid($"{QP_ENDPOINT}/social/{roomId}/round", json, onSuccess, onError)
             );
@@ -163,7 +163,7 @@ namespace Deskillz.QuickPlay
             Action<QuickPlayError> onError)
         {
             var body = new RebuyRequest { amount = amount };
-            var json = JsonUtility.ToJson(body);
+            var json = DeskillzJson.Serialize(body);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<RebuyResponse>(
                     $"{QP_ENDPOINT}/social/{roomId}/rebuy",
@@ -341,7 +341,7 @@ namespace Deskillz.QuickPlay
                         onSuccess?.Invoke(default);
                         return;
                     }
-                    var data = JsonUtility.FromJson<T>(responseText);
+                    var data = DeskillzJson.Deserialize<T>(responseText);
                     onSuccess?.Invoke(data);
                 }
                 catch (Exception ex)
@@ -363,7 +363,7 @@ namespace Deskillz.QuickPlay
                 var text = request.downloadHandler?.text;
                 if (!string.IsNullOrEmpty(text))
                 {
-                    var err = JsonUtility.FromJson<ApiErrorResponse>(text);
+                    var err = DeskillzJson.Deserialize<ApiErrorResponse>(text);
                     if (!string.IsNullOrEmpty(err?.message))
                         return new QuickPlayError(err.statusCode.ToString(), err.message);
                 }

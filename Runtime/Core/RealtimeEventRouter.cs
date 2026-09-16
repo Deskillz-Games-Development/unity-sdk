@@ -6,8 +6,8 @@
 //
 // Central router that listens to Socket.IO events from DeskillzNetwork
 // and dispatches them to the appropriate managers:
-//   - TournamentManager (tournament:started, tournament:left, match:launch)
-//   - QuickPlayManager (queue:matched, queue:timeout, match:completed)
+//   - TournamentManager (tournament:starting/left, match:launch)
+//   - QuickPlayManager (quick-play:found/timeout/match-completed)
 //   - RoomExtensions (room:invite)
 //
 // Registered by DeskillzManager during initialization.
@@ -67,73 +67,93 @@ namespace Deskillz
         /// </summary>
         private static void HandleSocketMessage(string eventType, string jsonData)
         {
+            // [P2-3.7.0] event names are the backend's (events.gateway, lobby.gateway,
+            // quick-play-*.service, tournament-*.service). Payloads bind case-insensitively.
             try
             {
                 switch (eventType)
                 {
-                    // ==========================================================
-                    // TOURNAMENT EVENTS (Phase 3 / 10.3)
-                    // ==========================================================
-
-                    case "tournament:started":
-                        var tsData = JsonUtility.FromJson<TournamentIdPayload>(jsonData);
-                        Tournaments.TournamentManager.HandleTournamentStarted(tsData?.tournamentId);
+                    // ---------------- tournaments ----------------
+                    case "tournament:registered":
+                    case "tournament:checkin-open":
+                    case "tournament:checked-in":
+                        DeskillzLogger.Info($"[RealtimeRouter] {eventType}");
                         break;
-
+                    case "tournament:starting":
+                        Tournaments.TournamentManager.HandleTournamentStarted(DeskillzJson.DeserializeRaw<TournamentIdPayload>(jsonData)?.tournamentId);
+                        break;
                     case "tournament:left":
-                        var tlData = JsonUtility.FromJson<TournamentIdPayload>(jsonData);
-                        Tournaments.TournamentManager.HandleTournamentLeft(tlData?.tournamentId);
+                    case "tournament:dq-noshow":
+                        Tournaments.TournamentManager.HandleTournamentLeft(DeskillzJson.DeserializeRaw<TournamentIdPayload>(jsonData)?.tournamentId);
                         break;
 
+                    // ---------------- launches ----------------
                     case "match:launch":
-                        var mlData = JsonUtility.FromJson<Tournaments.MatchLaunchPayload>(jsonData);
-                        Tournaments.TournamentManager.HandleMatchLaunch(mlData);
+                    case "quick-play:match-launched":
+                        var launch = DeskillzJson.DeserializeRaw<Tournaments.MatchLaunchPayload>(jsonData);
+                        if (launch != null)
+                        {
+                            Tournaments.TournamentManager.HandleMatchLaunch(launch);
+                            if (!string.IsNullOrEmpty(launch.DeepLink)) DeskillzManager.Instance?.LaunchFromLink(launch.DeepLink);
+                        }
                         break;
 
-                    // ==========================================================
-                    // QUICK PLAY EVENTS (Phase 6 / 10.4)
-                    // ==========================================================
-
-                    case "queue:matched":
-                    case "quick-play:matched":
-                        var qmData = JsonUtility.FromJson<QuickPlay.QuickPlayFoundData>(jsonData);
-                        QuickPlay.QuickPlayManager.HandleMatchFound(qmData);
+                    // ---------------- quick play ----------------
+                    case "quick-play:searching":
+                    case "quick-play:npc-filling":
+                    case "quick-play:lobby-update":
+                    case "quick-play:queue-roster":
+                    case "quick-play:score-submitted":
+                        DeskillzLogger.Verbose($"[RealtimeRouter] {eventType}");
                         break;
-
-                    case "queue:timeout":
+                    case "quick-play:found":
+                    case "quick-play:starting":
+                        QuickPlay.QuickPlayManager.HandleMatchFound(DeskillzJson.DeserializeRaw<QuickPlay.QuickPlayFoundData>(jsonData));
+                        break;
                     case "quick-play:timeout":
                         QuickPlay.QuickPlayManager.HandleQueueTimeout();
                         break;
-
-                    case "quickplay:match:completed":
-                    case "quick-play:match:completed":
-                        var qcData = JsonUtility.FromJson<QuickPlayMatchResult>(jsonData);
-                        QuickPlay.QuickPlayManager.HandleMatchCompleted(qcData);
+                    case "quick-play:match-completed":
+                        QuickPlay.QuickPlayManager.HandleMatchCompleted(DeskillzJson.DeserializeRaw<QuickPlayMatchResult>(jsonData));
+                        break;
+                    case "quick-play:social-room-created":
+                    case "quick-play:social-round-complete":
+                    case "quick-play:social-rebuy-required":
+                    case "quick-play:social-session-ended":
+                        DeskillzLogger.Info($"[RealtimeRouter] {eventType}");
                         break;
 
-                    // ==========================================================
-                    // ROOM INVITE EVENTS (Phase 5 / 10.5)
-                    // ==========================================================
+                    // ---------------- match room (events.gateway "/") ----------------
+                    case "match:found":
+                    case "match:accepted":
+                    case "match:declined":
+                    case "match:ready":
+                    case "match:ready_update":
+                    case "match:all_ready":
+                    case "match:player_joined":
+                    case "match:player_left":
+                    case "match:progress":
+                    case "match:state_change":
+                    case "match:cancelled":
+                        DeskillzLogger.Verbose($"[RealtimeRouter] {eventType}");
+                        break;
 
+                    // ---------------- private rooms (lobby.gateway "/lobby") ----------------
                     case "room:invite":
                     case "PRIVATE_ROOM_INVITE":
-                        var invite = JsonUtility.FromJson<RoomInvite>(jsonData);
-                        Rooms.RoomExtensions.HandleInviteReceived(invite);
+                        Rooms.RoomExtensions.HandleInviteReceived(DeskillzJson.DeserializeRaw<RoomInvite>(jsonData));
                         break;
-
-                    // ==========================================================
-                    // ROOM EVENTS (Phase 10 / 10.2) -- forwarded to DeskillzRooms
-                    // These are already handled by RoomWebSocket, but we log them
-                    // ==========================================================
-
-                    case "room:player:joined":
-                    case "room:player:left":
-                    case "room:player:ready":
-                    case "room:countdown":
-                    case "room:launching":
-                    case "room:cancelled":
-                    case "room:chat":
-                        // Already handled by RoomWebSocket -- no action needed
+                    case "room:state":
+                    case "room:table-assigned":
+                    case "room:start_success":
+                    case "private-room:player-ready":
+                    case "private-room:all-ready":
+                    case "private-room:player-kicked":
+                    case "private-room:player-disconnected":
+                    case "private-room:kicked":
+                    case "private-room:cancelled":
+                    case "private-room:chat":
+                        // handled by RoomWebSocket on the /lobby namespace
                         break;
 
                     default:

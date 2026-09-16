@@ -193,7 +193,7 @@ namespace Deskillz.Wallet
             Action<WalletError> onError)
         {
             var body = new DepositRequest { currency = currency, amount = amount };
-            var json = JsonUtility.ToJson(body);
+            var json = DeskillzJson.Serialize(body);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<DepositResponse>($"{WALLET_ENDPOINT}/deposit", json, onSuccess, onError)
             );
@@ -220,7 +220,7 @@ namespace Deskillz.Wallet
                 amount = amount,
                 walletAddress = walletAddress,
             };
-            var json = JsonUtility.ToJson(body);
+            var json = DeskillzJson.Serialize(body);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<WithdrawResponse>($"{WALLET_ENDPOINT}/withdraw", json, onSuccess, onError)
             );
@@ -378,7 +378,7 @@ namespace Deskillz.Wallet
                 {
                     var text = request.downloadHandler.text;
                     if (string.IsNullOrEmpty(text)) { onSuccess?.Invoke(default); return; }
-                    onSuccess?.Invoke(JsonUtility.FromJson<T>(text));
+                    onSuccess?.Invoke(DeskillzJson.Deserialize<T>(text));
                 }
                 catch (Exception ex)
                 {

@@ -327,6 +327,10 @@ namespace Deskillz.Rooms
         
         /// <summary>Room visibility (default: Unlisted)</summary>
         public RoomVisibility Visibility = RoomVisibility.Unlisted;
+        /// <summary>PLAYER (default) or SPECTATOR -- whether the host takes a seat. [P2-3.7.0]</summary>
+        public string HostRole;
+        /// <summary>Esport match mode override (e.g. DUEL_1V1, FFA). Leave null for the game default.</summary>
+        public string EsportMatchMode;
         
         /// <summary>Game mode (default: Sync)</summary>
         public RoomMode Mode = RoomMode.Sync;
@@ -358,7 +362,9 @@ namespace Deskillz.Rooms
                 mode = Mode.ToString().ToUpper(),
                 matchDuration = MatchDuration,
                 roundsCount = RoundsCount,
-                inviteRequired = InviteRequired
+                inviteRequired = InviteRequired,
+                hostRole = HostRole,
+                esportMatchMode = EsportMatchMode
             };
         }
     }
@@ -381,6 +387,80 @@ namespace Deskillz.Rooms
         public int? matchDuration;
         public int roundsCount;
         public bool inviteRequired;
+        public string hostRole;
+        public string esportMatchMode;
+    }
+
+    /// <summary>
+    /// Host a social table (Big 2, Thirteen, Mahjong ...) -- POST /api/v1/private-rooms/social.
+    /// The host earns the platform's rake share on every hand played at the table. [P2-3.7.0]
+    /// </summary>
+    [Serializable]
+    public class CreateSocialRoomConfig
+    {
+        /// <summary>Display name of the table.</summary>
+        public string Name;
+        /// <summary>BIG2 | THIRTEEN | MAHJONG (backend SocialGameType).</summary>
+        public string GameType;
+        /// <summary>CASH | TOURNAMENT (backend SocialMode). Null = platform default.</summary>
+        public string SocialMode;
+        /// <summary>Mahjong only: HONG_KONG | TAIWANESE | ... Null for other games.</summary>
+        public string MahjongVariant;
+        /// <summary>USD value of one point (drives buy-ins and settlement).</summary>
+        public decimal PointValueUsd = 0.01m;
+        /// <summary>Rake percentage the host takes per hand (platform caps apply). Null = default.</summary>
+        public decimal? RakePercentage;
+        /// <summary>Cap on rake per round in USD. Null = default.</summary>
+        public decimal? RakeCapPerRound;
+        /// <summary>PLAYER (default) or SPECTATOR.</summary>
+        public string HostRole;
+        public int? MaxPlayers;
+        public string Visibility;
+        public bool? InviteRequired;
+
+        public bool IsValid(out string error)
+        {
+            if (string.IsNullOrWhiteSpace(Name)) { error = "Name is required"; return false; }
+            if (string.IsNullOrWhiteSpace(GameType)) { error = "GameType is required (BIG2, THIRTEEN, MAHJONG)"; return false; }
+            if (PointValueUsd <= 0) { error = "PointValueUsd must be positive"; return false; }
+            error = null; return true;
+        }
+
+        internal CreateSocialRoomRequest ToRequest(string gameId)
+        {
+            return new CreateSocialRoomRequest
+            {
+                name = Name,
+                gameId = gameId,
+                gameType = GameType,
+                socialMode = SocialMode,
+                mahjongVariant = MahjongVariant,
+                pointValueUsd = PointValueUsd,
+                rakePercentage = RakePercentage,
+                rakeCapPerRound = RakeCapPerRound,
+                hostRole = HostRole,
+                maxPlayers = MaxPlayers,
+                visibility = Visibility,
+                inviteRequired = InviteRequired
+            };
+        }
+    }
+
+    [Serializable]
+    internal class CreateSocialRoomRequest
+    {
+        public string name;
+        public string gameId;
+        public string gameType;
+        public string socialMode;
+        public string mahjongVariant;
+        public decimal pointValueUsd;
+        public decimal? rakePercentage;
+        public decimal? rakeCapPerRound;
+        public string hostRole;
+        public int? maxPlayers;
+        public string visibility;
+        public bool? inviteRequired;
     }
 
     /// <summary>

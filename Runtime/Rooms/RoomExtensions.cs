@@ -116,38 +116,7 @@ namespace Deskillz.Rooms
         public List<RoomInvite> invites;
     }
 
-    [Serializable]
-    internal class CreateEsportRoomRequest
-    {
-        public string name;
-        public string gameId;
-        public decimal entryFee;
-        public string currency;
-        public int minPlayers;
-        public int maxPlayers;
-        public string hostRole;
-        public int matchDurationSeconds;
-        public string matchMode;
-        public string visibility;
-    }
-
-    [Serializable]
-    internal class CreateSocialRoomRequest
-    {
-        public string name;
-        public string gameId;
-        public string socialGameType;
-        public decimal tableStakes;
-        public string currency;
-        public int playersPerTable;
-        public int maxTables;
-        public string hostRole;
-        public decimal rakePercent;
-        public string visibility;
-        public string winCondition;
-        public int? winConditionTarget;
-    }
-
+    // [P2-3.7.0 fixE] the old-contract CreateSocialRoomRequest was removed; see RoomModels.CreateSocialRoomConfig
     // =========================================================================
     // ROOM EXTENSIONS MANAGER
     // =========================================================================
@@ -167,62 +136,65 @@ namespace Deskillz.Rooms
 
         /// <summary>
         /// Create an esport room with host role support.
-        /// POST /api/v1/private-rooms/create
         /// </summary>
+        /// <summary>
+        /// [P2-3.7.0 fixE] Adapter for the pre-3.7 options object. Prefer RoomApiClient.CreateRoom(CreateRoomConfig, ...).
+        /// </summary>
+        [Obsolete("Use RoomApiClient.CreateRoom(CreateRoomConfig, onSuccess, onError).")]
         public static void CreateEsportRoom(
             CreateEsportRoomOpts opts,
             Action<PrivateRoom> onSuccess,
             Action<RoomError> onError)
         {
-            var gameId = DeskillzManager.Instance?.Config?.GameId;
-            var request = new CreateEsportRoomRequest
+            if (opts == null)
             {
-                name = opts.Name,
-                gameId = gameId,
-                entryFee = opts.EntryFee,
-                currency = opts.Currency,
-                minPlayers = opts.MinPlayers,
-                maxPlayers = opts.MaxPlayers,
-                hostRole = opts.HostRole.ToString(),
-                matchDurationSeconds = opts.MatchDurationSeconds,
-                matchMode = opts.MatchMode.ToString(),
-                visibility = opts.Visibility,
+                onError?.Invoke(new RoomError(RoomError.Codes.ServerError, "opts is required"));
+                return;
+            }
+            var config = new CreateRoomConfig
+            {
+                Name = opts.Name,
+                EntryFee = opts.EntryFee,
+                EntryCurrency = opts.Currency,
+                MinPlayers = opts.MinPlayers,
+                MaxPlayers = opts.MaxPlayers,
+                Visibility = string.Equals(opts.Visibility, "PUBLIC", StringComparison.OrdinalIgnoreCase) ? RoomVisibility.PublicListed : RoomVisibility.Unlisted,
+                MatchDuration = opts.MatchDurationSeconds > 0 ? opts.MatchDurationSeconds : (int?)null,
+                HostRole = opts.HostRole.ToString().ToUpperInvariant(),
+                EsportMatchMode = opts.MatchMode.ToString().ToUpperInvariant()
             };
-            var json = JsonUtility.ToJson(request);
-            DeskillzManager.Instance.StartCoroutine(
-                PostRequest<PrivateRoom>($"{ROOMS_ENDPOINT}/create", json, onSuccess, onError)
-            );
+            RoomApiClient.CreateRoom(config, onSuccess, onError);
         }
 
         /// <summary>
         /// Create a social game room with host role and win condition.
-        /// POST /api/v1/private-rooms/create
         /// </summary>
+        /// <summary>
+        /// [P2-3.7.0 fixE] Adapter for the pre-3.7 options object. Prefer
+        /// RoomApiClient.CreateSocialRoom(CreateSocialRoomConfig, ...) which is the platform contract.
+        /// </summary>
+        [Obsolete("Use RoomApiClient.CreateSocialRoom(CreateSocialRoomConfig, onSuccess, onError).")]
         public static void CreateSocialRoom(
             CreateSocialRoomOpts opts,
             Action<PrivateRoom> onSuccess,
             Action<RoomError> onError)
         {
-            var gameId = DeskillzManager.Instance?.Config?.GameId;
-            var request = new CreateSocialRoomRequest
+            if (opts == null)
             {
-                name = opts.Name,
-                gameId = gameId,
-                socialGameType = opts.SocialGameType,
-                tableStakes = opts.TableStakes,
-                currency = opts.Currency,
-                playersPerTable = opts.PlayersPerTable,
-                maxTables = opts.MaxTables,
-                hostRole = opts.HostRole.ToString(),
-                rakePercent = opts.RakePercent,
-                visibility = opts.Visibility,
-                winCondition = opts.WinCondition.ToString(),
-                winConditionTarget = opts.WinConditionTarget,
+                onError?.Invoke(new RoomError(RoomError.Codes.ServerError, "opts is required"));
+                return;
+            }
+            var config = new CreateSocialRoomConfig
+            {
+                Name = opts.Name,
+                GameType = opts.SocialGameType,
+                PointValueUsd = opts.TableStakes > 0 ? opts.TableStakes : 0.01m,
+                RakePercentage = opts.RakePercent > 0 ? opts.RakePercent : (decimal?)null,
+                HostRole = opts.HostRole.ToString().ToUpperInvariant(),
+                Visibility = opts.Visibility,
+                MaxPlayers = opts.PlayersPerTable > 0 ? opts.PlayersPerTable : (int?)null
             };
-            var json = JsonUtility.ToJson(request);
-            DeskillzManager.Instance.StartCoroutine(
-                PostRequest<PrivateRoom>($"{ROOMS_ENDPOINT}/create", json, onSuccess, onError)
-            );
+            RoomApiClient.CreateSocialRoom(config, onSuccess, onError);
         }
 
         // =====================================================================
@@ -241,7 +213,7 @@ namespace Deskillz.Rooms
             Action<RoomError> onError)
         {
             var body = new BuyInRequest { amount = amount, currency = currency };
-            var json = JsonUtility.ToJson(body);
+            var json = DeskillzJson.Serialize(body);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<BuyInResponse>(
                     $"{ROOMS_ENDPOINT}/{roomId}/buy-in", json,
@@ -297,7 +269,7 @@ namespace Deskillz.Rooms
             Action<RoomError> onError)
         {
             var body = new RebuyRequest { amount = amount, currency = currency };
-            var json = JsonUtility.ToJson(body);
+            var json = DeskillzJson.Serialize(body);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<RebuyResponse>(
                     $"{ROOMS_ENDPOINT}/{roomId}/rebuy", json,
@@ -325,9 +297,9 @@ namespace Deskillz.Rooms
             var body = new SubmitRoundRequest
             {
                 roundNumber = roundNumber,
-                resultsJson = JsonUtility.ToJson(playerResults),
+                resultsJson = DeskillzJson.Serialize(playerResults),
             };
-            var json = JsonUtility.ToJson(body);
+            var json = DeskillzJson.Serialize(body);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequestVoid($"{ROOMS_ENDPOINT}/{roomId}/round", json, onSuccess, onError)
             );
@@ -379,7 +351,7 @@ namespace Deskillz.Rooms
                 targetUsernameOrId = targetUsernameOrId,
                 message = message,
             };
-            var json = JsonUtility.ToJson(body);
+            var json = DeskillzJson.Serialize(body);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequestVoid($"{ROOMS_ENDPOINT}/{roomId}/invite", json, onSuccess, onError)
             );
@@ -421,7 +393,7 @@ namespace Deskillz.Rooms
             Action<RoomError> onError)
         {
             var body = new InviteRespondRequest { accept = accept };
-            var json = JsonUtility.ToJson(body);
+            var json = DeskillzJson.Serialize(body);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequestVoid(
                     $"{ROOMS_ENDPOINT}/invites/{inviteId}/respond", json,
@@ -513,7 +485,7 @@ namespace Deskillz.Rooms
                 {
                     var text = request.downloadHandler.text;
                     if (string.IsNullOrEmpty(text)) { onSuccess?.Invoke(default); return; }
-                    onSuccess?.Invoke(JsonUtility.FromJson<T>(text));
+                    onSuccess?.Invoke(DeskillzJson.Deserialize<T>(text));
                 }
                 catch (Exception ex)
                 {

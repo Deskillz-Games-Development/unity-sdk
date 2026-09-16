@@ -31,7 +31,7 @@ namespace Deskillz.Disputes
             Action<DisputeRecord> onSuccess,
             Action<DisputeError> onError)
         {
-            var json = JsonUtility.ToJson(request);
+            var json = DeskillzJson.Serialize(request);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<DisputeRecord>(DISPUTES_ENDPOINT, json, onSuccess, onError)
             );
@@ -85,7 +85,7 @@ namespace Deskillz.Disputes
             Action<DisputeError> onError)
         {
             var body = new EvidenceRequest { evidence = evidence };
-            var json = JsonUtility.ToJson(body);
+            var json = DeskillzJson.Serialize(body);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<EvidenceResponse>(
                     $"{DISPUTES_ENDPOINT}/{disputeId}/evidence",
@@ -208,7 +208,7 @@ namespace Deskillz.Disputes
                         onSuccess?.Invoke(default);
                         return;
                     }
-                    var data = JsonUtility.FromJson<T>(responseText);
+                    var data = DeskillzJson.Deserialize<T>(responseText);
                     onSuccess?.Invoke(data);
                 }
                 catch (Exception ex)
@@ -230,7 +230,7 @@ namespace Deskillz.Disputes
                 var text = request.downloadHandler?.text;
                 if (!string.IsNullOrEmpty(text))
                 {
-                    var err = JsonUtility.FromJson<ApiErrorResponse>(text);
+                    var err = DeskillzJson.Deserialize<ApiErrorResponse>(text);
                     if (!string.IsNullOrEmpty(err?.message))
                         return new DisputeError(err.statusCode.ToString(), err.message);
                 }

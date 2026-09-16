@@ -2,7 +2,7 @@
     "name": "com.deskillz.sdk",
     "version": "3.7.0",
     "displayName": "Deskillz SDK",
-    "_patch": "[P1-3.7.0] Unity 6 / Railway API / Socket.IO / HMAC scores",
+    "_patch": "[P1-3.7.0] [P2-3.7.0] Unity 6 / Railway API / Socket.IO (native + Web) / HMAC scores / current-contract models",
     "description": "Deskillz competitive gaming SDK for Unity. Integrate tournaments, Quick Play matchmaking, private rooms, social games, and crypto prizes into your game.",
     "unity": "6000.0",
     "unityRelease": "0f1",
@@ -34,24 +34,9 @@
     },
     "samples": [
         {
-            "displayName": "Basic Integration",
-            "description": "Minimal integration example with 2-line score submission",
-            "path": "Samples~/BasicIntegration"
-        },
-        {
-            "displayName": "Async Tournament",
-            "description": "Complete asynchronous tournament game example",
-            "path": "Samples~/AsyncTournament"
-        },
-        {
-            "displayName": "Realtime Multiplayer",
-            "description": "Synchronous real-time multiplayer example",
-            "path": "Samples~/RealtimeMultiplayer"
-        },
-        {
-            "displayName": "Custom Stage",
-            "description": "Custom stage/room system example",
-            "path": "Samples~/CustomStageDemo"
+            "displayName": "QuickStart",
+            "description": "One MonoBehaviour showing the whole loop: initialize, launch, play, submit score, end match",
+            "path": "Samples~/QuickStart"
         }
     ]
 }

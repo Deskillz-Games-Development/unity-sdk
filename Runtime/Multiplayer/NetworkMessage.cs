@@ -50,7 +50,7 @@ namespace Deskillz.Multiplayer
         public T GetPayload<T>() where T : class
         {
             if (string.IsNullOrEmpty(Payload)) return null;
-            return JsonUtility.FromJson<T>(Payload);
+            return DeskillzJson.DeserializeRaw<T>(Payload);
         }
 
         /// <summary>
@@ -58,7 +58,7 @@ namespace Deskillz.Multiplayer
         /// </summary>
         public void SetPayload<T>(T data) where T : class
         {
-            Payload = JsonUtility.ToJson(data);
+            Payload = DeskillzJson.Serialize(data);
         }
     }
 
@@ -159,7 +159,7 @@ namespace Deskillz.Multiplayer
         /// </summary>
         public string SerializeMessage(NetworkMessage message)
         {
-            return JsonUtility.ToJson(new SerializableMessage
+            return DeskillzJson.Serialize(new SerializableMessage
             {
                 t = (int)message.Type,
                 s = message.SenderId,
@@ -179,7 +179,7 @@ namespace Deskillz.Multiplayer
         {
             try
             {
-                var data = JsonUtility.FromJson<SerializableMessage>(json);
+                var data = DeskillzJson.DeserializeRaw<SerializableMessage>(json);
                 return new NetworkMessage
                 {
                     Type = (MessageType)data.t,
@@ -205,7 +205,7 @@ namespace Deskillz.Multiplayer
         public string Serialize<T>(T obj) where T : class
         {
             if (obj == null) return null;
-            return JsonUtility.ToJson(obj);
+            return DeskillzJson.Serialize(obj);
         }
 
         /// <summary>
@@ -216,7 +216,7 @@ namespace Deskillz.Multiplayer
             if (string.IsNullOrEmpty(json)) return null;
             try
             {
-                return JsonUtility.FromJson<T>(json);
+                return DeskillzJson.DeserializeRaw<T>(json);
             }
             catch
             {

@@ -239,7 +239,7 @@ namespace Deskillz.Disputes
         {
             try
             {
-                var json = JsonUtility.ToJson(data);
+                var json = DeskillzJson.Serialize(data);
                 PlayerPrefs.SetString(LAST_MATCH_KEY, json);
                 PlayerPrefs.Save();
             }
@@ -260,7 +260,7 @@ namespace Deskillz.Disputes
                 var json = PlayerPrefs.GetString(LAST_MATCH_KEY, null);
                 if (string.IsNullOrEmpty(json)) return null;
 
-                var data = JsonUtility.FromJson<LastMatchContext>(json);
+                var data = DeskillzJson.Deserialize<LastMatchContext>(json);
 
                 // Expire after 7 days
                 if (!string.IsNullOrEmpty(data.CompletedAt))

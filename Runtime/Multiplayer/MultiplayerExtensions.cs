@@ -26,7 +26,7 @@ namespace Deskillz.Multiplayer
             var eventMsg = new GameEventMessage
             {
                 EventType = eventType,
-                Data = data != null ? JsonUtility.ToJson(data) : null,
+                Data = data != null ? DeskillzJson.Serialize(data) : null,
                 Position = position ?? Vector3.zero
             };
 

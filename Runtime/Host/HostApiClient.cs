@@ -70,7 +70,7 @@ namespace Deskillz.Host
             Action<HostProfile> onSuccess,
             Action<HostError> onError)
         {
-            var json = JsonUtility.ToJson(new AgeVerificationRequest { confirmed = confirmed });
+            var json = DeskillzJson.Serialize(new AgeVerificationRequest { confirmed = confirmed });
 
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<HostProfile>(
@@ -128,7 +128,7 @@ namespace Deskillz.Host
             Action<WithdrawalResponse> onSuccess,
             Action<HostError> onError)
         {
-            var json = JsonUtility.ToJson(request);
+            var json = DeskillzJson.Serialize(request);
 
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<WithdrawalResponse>(
@@ -302,7 +302,7 @@ namespace Deskillz.Host
             Action<HostNotificationSettings> onSuccess,
             Action<HostError> onError)
         {
-            var json = JsonUtility.ToJson(request);
+            var json = DeskillzJson.Serialize(request);
 
             DeskillzManager.Instance.StartCoroutine(
                 PutRequest<HostNotificationSettings>(
@@ -488,7 +488,7 @@ namespace Deskillz.Host
                 try
                 {
                     var responseText = request.downloadHandler.text;
-                    var response = JsonUtility.FromJson<HostApiResponse<T>>(responseText);
+                    var response = DeskillzJson.Deserialize<HostApiResponse<T>>(responseText);
 
                     if (response.success)
                     {
@@ -519,7 +519,7 @@ namespace Deskillz.Host
             {
                 try
                 {
-                    var errorResponse = JsonUtility.FromJson<ErrorResponse>(request.downloadHandler.text);
+                    var errorResponse = DeskillzJson.Deserialize<ErrorResponse>(request.downloadHandler.text);
                     if (!string.IsNullOrEmpty(errorResponse?.error))
                     {
                         return new HostError(

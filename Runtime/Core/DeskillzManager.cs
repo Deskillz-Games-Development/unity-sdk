@@ -525,6 +525,16 @@ namespace Deskillz
             ProcessDeepLink(url);
         }
 
+        /// <summary>
+        /// Run the launch flow for a deskillz:// or web launch link received in-app
+        /// (tournament match:launch, quick-play:match-launched). [P2-3.7.0]
+        /// </summary>
+        public void LaunchFromLink(string url)
+        {
+            if (string.IsNullOrEmpty(url)) return;
+            ProcessDeepLink(url);
+        }
+
         private void ProcessDeepLink(string url)
         {
             if (string.IsNullOrEmpty(url)) return;

@@ -303,7 +303,7 @@ namespace Deskillz
 
             try
             {
-                var json = JsonUtility.ToJson(new SerializableWrapper<T> { Value = value });
+                var json = DeskillzJson.Serialize(new SerializableWrapper<T> { Value = value });
                 var path = GetFilePath(key);
                 File.WriteAllText(path, json);
                 DeskillzLogger.Verbose($"Saved to persistent storage: {key}");
@@ -327,7 +327,7 @@ namespace Deskillz
                 if (!File.Exists(path)) return default;
 
                 var json = File.ReadAllText(path);
-                var wrapper = JsonUtility.FromJson<SerializableWrapper<T>>(json);
+                var wrapper = DeskillzJson.DeserializeRaw<SerializableWrapper<T>>(json);
                 return wrapper.Value;
             }
             catch (Exception ex)

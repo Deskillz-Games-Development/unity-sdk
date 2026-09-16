@@ -349,7 +349,7 @@ namespace Deskillz.Rooms
         {
             try
             {
-                var envelope = JsonUtility.FromJson<SocketEnvelope>(messageJson);
+                var envelope = DeskillzJson.DeserializeRaw<SocketEnvelope>(messageJson);
                 
                 if (string.IsNullOrEmpty(envelope?.@event))
                 {
@@ -372,12 +372,12 @@ namespace Deskillz.Rooms
             switch (eventType)
             {
                 case "room:state":
-                    var room = JsonUtility.FromJson<PrivateRoom>(dataJson);
+                    var room = DeskillzJson.DeserializeRaw<PrivateRoom>(dataJson);
                     OnStateUpdate?.Invoke(room);
                     break;
 
                 case "private-room:player-joined":
-                    var joinedData = JsonUtility.FromJson<PlayerJoinedEvent>(dataJson);
+                    var joinedData = DeskillzJson.DeserializeRaw<PlayerJoinedEvent>(dataJson);
                     var joinedPlayer = new RoomPlayer
                     {
                         Id = joinedData.id,
@@ -391,37 +391,37 @@ namespace Deskillz.Rooms
                     break;
 
                 case "private-room:player-left":
-                    var leftData = JsonUtility.FromJson<PlayerLeftEvent>(dataJson);
+                    var leftData = DeskillzJson.DeserializeRaw<PlayerLeftEvent>(dataJson);
                     OnPlayerLeft?.Invoke(leftData.id);
                     break;
 
                 case "private-room:player-kicked":
-                    var kickedData = JsonUtility.FromJson<PlayerLeftEvent>(dataJson);
+                    var kickedData = DeskillzJson.DeserializeRaw<PlayerLeftEvent>(dataJson);
                     OnPlayerKicked?.Invoke(kickedData.id);
                     break;
 
                 case "private-room:player-ready":
-                    var readyData = JsonUtility.FromJson<PlayerReadyEvent>(dataJson);
+                    var readyData = DeskillzJson.DeserializeRaw<PlayerReadyEvent>(dataJson);
                     OnPlayerReady?.Invoke(readyData.id, readyData.isReady, readyData.allReady);
                     break;
 
                 case "private-room:all-ready":
-                    var allReadyData = JsonUtility.FromJson<AllReadyEvent>(dataJson);
+                    var allReadyData = DeskillzJson.DeserializeRaw<AllReadyEvent>(dataJson);
                     OnAllReady?.Invoke(allReadyData.playerCount);
                     break;
 
                 case "private-room:countdown-started":
-                    var countdownStartData = JsonUtility.FromJson<CountdownEvent>(dataJson);
+                    var countdownStartData = DeskillzJson.DeserializeRaw<CountdownEvent>(dataJson);
                     OnCountdownStarted?.Invoke(countdownStartData.seconds);
                     break;
 
                 case "private-room:countdown-tick":
-                    var tickData = JsonUtility.FromJson<CountdownEvent>(dataJson);
+                    var tickData = DeskillzJson.DeserializeRaw<CountdownEvent>(dataJson);
                     OnCountdownTick?.Invoke(tickData.seconds);
                     break;
 
                 case "private-room:launching":
-                    var launchData = JsonUtility.FromJson<LaunchingEvent>(dataJson);
+                    var launchData = DeskillzJson.DeserializeRaw<LaunchingEvent>(dataJson);
                     var matchLaunchData = new MatchLaunchData
                     {
                         MatchId = launchData.matchId,
@@ -433,22 +433,22 @@ namespace Deskillz.Rooms
                     break;
 
                 case "private-room:cancelled":
-                    var cancelledData = JsonUtility.FromJson<CancelledEvent>(dataJson);
+                    var cancelledData = DeskillzJson.DeserializeRaw<CancelledEvent>(dataJson);
                     OnCancelled?.Invoke(cancelledData.reason);
                     break;
 
                 case "private-room:kicked":
-                    var kickedMeData = JsonUtility.FromJson<KickedEvent>(dataJson);
+                    var kickedMeData = DeskillzJson.DeserializeRaw<KickedEvent>(dataJson);
                     OnKicked?.Invoke(kickedMeData.reason);
                     break;
 
                 case "private-room:chat":
-                    var chatData = JsonUtility.FromJson<ChatEvent>(dataJson);
+                    var chatData = DeskillzJson.DeserializeRaw<ChatEvent>(dataJson);
                     OnChat?.Invoke(chatData.id, chatData.username, chatData.message);
                     break;
 
                 case "error":
-                    var errorData = JsonUtility.FromJson<ErrorEvent>(dataJson);
+                    var errorData = DeskillzJson.DeserializeRaw<ErrorEvent>(dataJson);
                     OnError?.Invoke(errorData.message);
                     break;
 

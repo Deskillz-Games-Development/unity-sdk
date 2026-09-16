@@ -451,7 +451,7 @@ namespace Deskillz.Tournaments
                 var responseText = request.downloadHandler?.text;
                 if (!string.IsNullOrEmpty(responseText))
                 {
-                    var errorResponse = JsonUtility.FromJson<ErrorApiResponse>(responseText);
+                    var errorResponse = DeskillzJson.Deserialize<ErrorApiResponse>(responseText);
                     if (!string.IsNullOrEmpty(errorResponse?.message))
                     {
                         return new TournamentError(

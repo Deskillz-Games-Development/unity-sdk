@@ -45,7 +45,7 @@ namespace Deskillz.Rooms
             }
 
             var request = config.ToRequest(gameId);
-            var json = JsonUtility.ToJson(request);
+            var json = DeskillzJson.Serialize(request);
 
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<PrivateRoom>(
@@ -64,6 +64,41 @@ namespace Deskillz.Rooms
         /// <summary>
         /// Get public rooms for a specific game
         /// </summary>
+        /// <summary>
+        /// Host a social table (Big 2 / Thirteen / Mahjong). POST /api/v1/private-rooms/social  [P2-3.7.0]
+        /// </summary>
+        public static void CreateSocialRoom(
+            CreateSocialRoomConfig config,
+            Action<PrivateRoom> onSuccess,
+            Action<RoomError> onError)
+        {
+            var gameId = DeskillzManager.Instance?.Config?.GameId;
+            if (string.IsNullOrEmpty(gameId))
+            {
+                onError?.Invoke(new RoomError(RoomError.Codes.ServerError, "Game ID not configured"));
+                return;
+            }
+            if (config == null)
+            {
+                onError?.Invoke(new RoomError(RoomError.Codes.ServerError, "config is required")); // [P2-3.7.0 fixF]
+                return;
+            }
+            if (!config.IsValid(out var validationError))
+            {
+                onError?.Invoke(new RoomError(RoomError.Codes.ServerError, validationError));
+                return;
+            }
+            var json = DeskillzJson.Serialize(config.ToRequest(gameId));
+            DeskillzManager.Instance.StartCoroutine(
+                PostRequest<PrivateRoom>(
+                    $"{ROOMS_ENDPOINT}/social",
+                    json,
+                    onSuccess,
+                    onError
+                )
+            );
+        }
+
         public static void GetPublicRooms(
             string gameId,
             Action<List<PrivateRoom>> onSuccess,
@@ -149,7 +184,7 @@ namespace Deskillz.Rooms
             Action<RoomError> onError)
         {
             var endpoint = $"{ROOMS_ENDPOINT}/join";
-            var json = JsonUtility.ToJson(new JoinRoomRequest { roomCode = roomCode });
+            var json = DeskillzJson.Serialize(new JoinRoomRequest { roomCode = roomCode });
 
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<PrivateRoom>(
@@ -195,7 +230,7 @@ namespace Deskillz.Rooms
             Action<RoomError> onError)
         {
             var endpoint = $"{ROOMS_ENDPOINT}/{roomId}/ready";
-            var json = JsonUtility.ToJson(new SetReadyRequest { isReady = isReady });
+            var json = DeskillzJson.Serialize(new SetReadyRequest { isReady = isReady });
 
             DeskillzManager.Instance.StartCoroutine(
                 PutRequest<PrivateRoom>(
@@ -241,7 +276,7 @@ namespace Deskillz.Rooms
             Action<RoomError> onError)
         {
             var endpoint = $"{ROOMS_ENDPOINT}/{roomId}/kick";
-            var json = JsonUtility.ToJson(new KickPlayerRequest { playerId = playerId });
+            var json = DeskillzJson.Serialize(new KickPlayerRequest { playerId = playerId });
 
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<EmptyResponse>(
@@ -287,7 +322,7 @@ namespace Deskillz.Rooms
             Action<RoomError> onError)
         {
             var endpoint = $"{ROOMS_ENDPOINT}/{roomId}/invite";
-            var json = JsonUtility.ToJson(new InvitePlayerRequest 
+            var json = DeskillzJson.Serialize(new InvitePlayerRequest 
             { 
                 playerId = playerId,
                 message = message 
@@ -313,7 +348,7 @@ namespace Deskillz.Rooms
             Action<RoomError> onError)
         {
             var endpoint = $"{ROOMS_ENDPOINT}/{roomId}/request";
-            var json = JsonUtility.ToJson(new JoinRequestRequest { message = message });
+            var json = DeskillzJson.Serialize(new JoinRequestRequest { message = message });
 
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<EmptyResponse>(
@@ -457,7 +492,7 @@ namespace Deskillz.Rooms
                         return;
                     }
 
-                    var response = JsonUtility.FromJson<T>(responseText);
+                    var response = DeskillzJson.Deserialize<T>(responseText);
                     onSuccess?.Invoke(response);
                 }
                 catch (Exception ex)
@@ -481,7 +516,7 @@ namespace Deskillz.Rooms
                 var responseText = request.downloadHandler?.text;
                 if (!string.IsNullOrEmpty(responseText))
                 {
-                    var errorResponse = JsonUtility.FromJson<ErrorResponse>(responseText);
+                    var errorResponse = DeskillzJson.Deserialize<ErrorResponse>(responseText);
                     if (!string.IsNullOrEmpty(errorResponse?.message))
                     {
                         return new RoomError(

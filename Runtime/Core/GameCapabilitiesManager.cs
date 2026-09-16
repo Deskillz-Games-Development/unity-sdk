@@ -106,7 +106,7 @@ namespace Deskillz
                     var text = request.downloadHandler.text;
                     if (!string.IsNullOrEmpty(text))
                     {
-                        var caps = JsonUtility.FromJson<GameCapabilities>(text);
+                        var caps = DeskillzJson.Deserialize<GameCapabilities>(text);
                         Current = caps;
                         IsFetched = true;
                         DeskillzLogger.Info($"[Capabilities] Fetched for game {gameId}");

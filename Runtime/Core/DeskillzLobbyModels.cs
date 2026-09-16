@@ -199,6 +199,25 @@ namespace Deskillz
         public int MaxPlayersPerTable;
         public int MatchDurationSeconds;
         public string SocialGameType;
+        // [P2-3.7.0] current tournament contract (tournaments.service toTournamentResponse)
+        public string Mode;
+        public string GameCategory;
+        public string SocialMode;
+        public string EsportMatchMode;
+        public string GameplayMode;
+        public string GameRuleVariant;
+        public string MahjongVariant;
+        public int TurnTimerSeconds;
+        public int MatchDuration;
+        public int RoundsCount;
+        public int NumberOfTables;
+        public int MinPlayersPerTableCurrent;
+        public int CheckinWindowMinutes;
+        public int EntriesCount;
+        public string PrizeCurrency;
+        public string EntryCurrency;
+        public string CreatedByUsername;
+        public int PlatformFeePercent;
         public DateTime ScheduledStart;
         public DateTime? CheckInOpensAt;
         public DateTime? CheckInClosesAt;

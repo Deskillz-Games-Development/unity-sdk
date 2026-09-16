@@ -210,7 +210,7 @@ namespace Deskillz.Social
             Action<SocialGameError> onError)
         {
             var url = GetFullUrl($"{SOCIAL_ENDPOINT}/buy-in");
-            var json = JsonUtility.ToJson(request);
+            var json = DeskillzJson.Serialize(request);
             var bodyRaw = Encoding.UTF8.GetBytes(json);
 
             using var webRequest = new UnityWebRequest(url, "POST");
@@ -224,7 +224,7 @@ namespace Deskillz.Social
             {
                 try
                 {
-                    var response = JsonUtility.FromJson<ApiResponse<BuyInResponse>>(
+                    var response = DeskillzJson.Deserialize<ApiResponse<BuyInResponse>>(
                         webRequest.downloadHandler.text
                     );
 
@@ -327,7 +327,7 @@ namespace Deskillz.Social
             Action<SocialGameError> onError)
         {
             var url = GetFullUrl($"{SOCIAL_ENDPOINT}/rebuy");
-            var json = JsonUtility.ToJson(request);
+            var json = DeskillzJson.Serialize(request);
             var bodyRaw = Encoding.UTF8.GetBytes(json);
 
             using var webRequest = new UnityWebRequest(url, "POST");
@@ -341,7 +341,7 @@ namespace Deskillz.Social
             {
                 try
                 {
-                    var response = JsonUtility.FromJson<ApiResponse<BuyInResponse>>(
+                    var response = DeskillzJson.Deserialize<ApiResponse<BuyInResponse>>(
                         webRequest.downloadHandler.text
                     );
 
@@ -426,7 +426,7 @@ namespace Deskillz.Social
             Action<SocialGameError> onError)
         {
             var url = GetFullUrl($"{SOCIAL_ENDPOINT}/cash-out");
-            var json = JsonUtility.ToJson(request);
+            var json = DeskillzJson.Serialize(request);
             var bodyRaw = Encoding.UTF8.GetBytes(json);
 
             using var webRequest = new UnityWebRequest(url, "POST");
@@ -440,7 +440,7 @@ namespace Deskillz.Social
             {
                 try
                 {
-                    var response = JsonUtility.FromJson<ApiResponse<CashOutResponse>>(
+                    var response = DeskillzJson.Deserialize<ApiResponse<CashOutResponse>>(
                         webRequest.downloadHandler.text
                     );
 
@@ -579,7 +579,7 @@ namespace Deskillz.Social
             {
                 try
                 {
-                    var errorResponse = JsonUtility.FromJson<ErrorResponse>(request.downloadHandler.text);
+                    var errorResponse = DeskillzJson.Deserialize<ErrorResponse>(request.downloadHandler.text);
                     if (!string.IsNullOrEmpty(errorResponse?.error))
                     {
                         return new SocialGameError(

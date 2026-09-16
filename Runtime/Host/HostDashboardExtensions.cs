@@ -207,7 +207,7 @@ namespace Deskillz.Host
                 currency = currency,
                 walletAddress = walletAddress,
             };
-            var json = JsonUtility.ToJson(body);
+            var json = DeskillzJson.Serialize(body);
             DeskillzManager.Instance.StartCoroutine(
                 PostRequest<HostWithdrawalResponse>(
                     $"{HOST_ENDPOINT}/withdraw", json,
@@ -288,7 +288,7 @@ namespace Deskillz.Host
                 {
                     var text = request.downloadHandler.text;
                     if (string.IsNullOrEmpty(text)) { onSuccess?.Invoke(default); return; }
-                    onSuccess?.Invoke(JsonUtility.FromJson<T>(text));
+                    onSuccess?.Invoke(DeskillzJson.Deserialize<T>(text));
                 }
                 catch (Exception ex)
                 {

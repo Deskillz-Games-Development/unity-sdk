@@ -1,29 +1,37 @@
 // =============================================================================
-// Deskillz SDK for Unity -- Socket.IO v4 client  [P1-3.7.0]
-// Engine.IO v4 over System.Net.WebSockets.ClientWebSocket. One instance per
-// namespace ("/" = match relay, "/lobby" = rooms / quick play). Auth is sent
-// in the CONNECT packet as { token } and re-read from the token provider on
-// every (re)connect (mirrors the web bridge's N250c callback auth).
-// Callbacks are queued and delivered on the Unity main thread by PumpAll(),
-// which DeskillzManager calls from Update().
-// WebGL/Web builds: no native socket in Patch 1 (a jslib bridge lands in
-// Patch 2); Connect() reports WebSocketError on that platform.
+// Deskillz SDK for Unity -- Socket.IO v4 client  [P1-3.7.0] [P2-3.7.0]
+// Engine.IO v4 framing over a pluggable text WebSocket transport:
+//   native (Android / iOS / Standalone / Editor) : System.Net.WebSockets.ClientWebSocket
+//   Web (UNITY_WEBGL)                            : browser WebSocket via DeskillzWebSocket.jslib
+// One instance per namespace ("/" = match relay, "/lobby" = rooms / quick play). Auth is
+// sent in the CONNECT packet as { token } from the token provider on every (re)connect.
+// The client is frame-driven: DeskillzManager.Update() calls PumpAll(), which delivers
+// queued callbacks on the main thread, arms reconnects and enforces the ping timeout.
 // =============================================================================
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-#if !UNITY_WEBGL || UNITY_EDITOR
-using System.Net.WebSockets;
-#endif
+using UnityEngine;
 
 namespace Deskillz.Realtime
 {
+    /// <summary>Minimal text WebSocket surface the Socket.IO layer needs.</summary>
+    internal interface ISocketTransport : IDisposable
+    {
+        bool IsOpen { get; }
+        event Action OnOpen;
+        event Action<string> OnMessage;
+        event Action<string> OnError;
+        event Action<int> OnClose;
+        void Connect(Uri uri);
+        void Send(string text);
+        void Close();
+    }
+
     public sealed class SocketIOClient : IDisposable
     {
         public event Action OnConnected;
@@ -36,8 +44,8 @@ namespace Deskillz.Realtime
         public bool IsConnected { get; private set; }
 
         private const int MAX_RECONNECT_ATTEMPTS = 10;
-        private const int RECONNECT_BASE_MS = 1000;
-        private const int RECONNECT_MAX_MS = 15000;
+        private const float RECONNECT_BASE_S = 1f;
+        private const float RECONNECT_MAX_S = 15f;
 
         private readonly string _origin;
         private readonly Func<string> _tokenProvider;
@@ -46,15 +54,14 @@ namespace Deskillz.Realtime
         private static readonly List<SocketIOClient> Live = new List<SocketIOClient>();
         private static readonly object LiveLock = new object();
 
+        private ISocketTransport _transport;
         private int _ackId;
         private int _reconnectAttempts;
         private bool _closedByUser;
-        private CancellationTokenSource _cts;
-#if !UNITY_WEBGL || UNITY_EDITOR
-        private ClientWebSocket _ws;
-        private Timer _pingTimeoutTimer;
-        private int _pingTimeoutMs = 20000;
-#endif
+        private bool _wantConnection;
+        private float _reconnectAt = -1f;      // Time.realtimeSinceStartup deadline, -1 = none
+        private float _pingDeadline = -1f;     // ping timeout deadline, -1 = none
+        private float _pingWindowS = 45f;      // pingInterval + pingTimeout from the OPEN packet
 
         /// <param name="origin">https://host (the API origin, not wss://).</param>
         /// <param name="ns">"/" or "/lobby".</param>
@@ -84,6 +91,18 @@ namespace Deskillz.Realtime
                 try { a(); }
                 catch (Exception ex) { DeskillzLogger.Error("[SocketIO] callback error: " + ex.Message); }
             }
+            var now = Time.realtimeSinceStartup;
+            if (_reconnectAt >= 0f && now >= _reconnectAt)
+            {
+                _reconnectAt = -1f;
+                if (_wantConnection && !_closedByUser) Open();
+            }
+            if (_pingDeadline >= 0f && now >= _pingDeadline)
+            {
+                _pingDeadline = -1f;
+                DeskillzLogger.Warning($"[SocketIO {Namespace}] ping timeout, dropping connection");
+                _transport?.Close();
+            }
         }
 
         private void Post(Action a) => _mainThread.Enqueue(a);
@@ -94,25 +113,51 @@ namespace Deskillz.Realtime
         public void Connect()
         {
             _closedByUser = false;
+            _wantConnection = true;
+            if (_transport != null && _transport.IsOpen) return;
+            Open();
+        }
+
+        private void Open()
+        {
+            DisposeTransport();
+            _transport = CreateTransport();
+            _transport.OnOpen += HandleTransportOpen;
+            _transport.OnMessage += HandleTransportMessage;
+            _transport.OnError += HandleTransportError;
+            _transport.OnClose += HandleTransportClose;
+            var wsOrigin = _origin.Replace("https://", "wss://").Replace("http://", "ws://");
+            try
+            {
+                _transport.Connect(new Uri(wsOrigin + "/socket.io/?EIO=4&transport=websocket"));
+            }
+            catch (Exception ex)
+            {
+                HandleTransportError(ex.Message);
+                HandleTransportClose(1006);
+            }
+        }
+
+        private static ISocketTransport CreateTransport()
+        {
 #if UNITY_WEBGL && !UNITY_EDITOR
-            Post(() => OnError?.Invoke("Socket.IO is not available on Web builds in SDK 3.7.0 Patch 1"));
+            return new WebGLSocketTransport();
 #else
-            if (_ws != null && _ws.State == WebSocketState.Open) return;
-            _cts?.Cancel();
-            _cts = new CancellationTokenSource();
-            _ = RunAsync(_cts.Token);
+            return new NativeSocketTransport();
 #endif
         }
 
         public void Disconnect()
         {
             _closedByUser = true;
-#if !UNITY_WEBGL || UNITY_EDITOR
-            try { if (_ws != null && _ws.State == WebSocketState.Open) _ = SendRawAsync("41" + NsPrefix()); }
-            catch (Exception) { }
-            _cts?.Cancel();
-            CloseSocket();
-#endif
+            _wantConnection = false;
+            _reconnectAt = -1f;
+            _pingDeadline = -1f;
+            if (_transport != null && _transport.IsOpen)
+            {
+                try { _transport.Send("41" + NsPrefix()); } catch (Exception) { }
+            }
+            DisposeTransport();
             if (IsConnected)
             {
                 IsConnected = false;
@@ -126,13 +171,25 @@ namespace Deskillz.Realtime
             lock (LiveLock) Live.Remove(this);
         }
 
+        private void DisposeTransport()
+        {
+            var tr = _transport;
+            _transport = null;
+            if (tr == null) return;
+            tr.OnOpen -= HandleTransportOpen;
+            tr.OnMessage -= HandleTransportMessage;
+            tr.OnError -= HandleTransportError;
+            tr.OnClose -= HandleTransportClose;
+            try { tr.Dispose(); } catch (Exception) { }
+        }
+
         // ---------------------------------------------------------------------
         // Emit
         // ---------------------------------------------------------------------
         /// <summary>Emit an event. `data` may be any object (serialized camelCase) or a pre-built JSON string.</summary>
         public void Emit(string eventName, object data = null, Action<string> ack = null)
         {
-            if (!IsConnected)
+            if (!IsConnected || _transport == null || !_transport.IsOpen)
             {
                 DeskillzLogger.Warning($"[SocketIO {Namespace}] emit '{eventName}' dropped: not connected");
                 return;
@@ -148,73 +205,32 @@ namespace Deskillz.Realtime
             var id = "";
             if (ack != null)
             {
-                var n = Interlocked.Increment(ref _ackId);
+                var n = ++_ackId;
                 lock (_acks) _acks[n] = ack;
                 id = n.ToString(CultureInfo.InvariantCulture);
             }
-#if !UNITY_WEBGL || UNITY_EDITOR
-            _ = SendRawAsync("42" + NsPrefix() + id + args);
-#endif
+            SendRaw("42" + NsPrefix() + id + args);
         }
 
         private string NsPrefix() => Namespace == "/" ? "" : Namespace + ",";
 
-#if !UNITY_WEBGL || UNITY_EDITOR
-        // ---------------------------------------------------------------------
-        // Engine.IO transport
-        // ---------------------------------------------------------------------
-        private async Task RunAsync(CancellationToken ct)
+        private void SendRaw(string text)
         {
-            while (!ct.IsCancellationRequested && !_closedByUser)
-            {
-                try
-                {
-                    _ws = new ClientWebSocket();
-                    var wsOrigin = _origin.Replace("https://", "wss://").Replace("http://", "ws://");
-                    var uri = new Uri(wsOrigin + "/socket.io/?EIO=4&transport=websocket");
-                    await _ws.ConnectAsync(uri, ct);
-                    await ReceiveLoopAsync(ct);
-                }
-                catch (OperationCanceledException) { }
-                catch (Exception ex)
-                {
-                    var msg = ex.Message;
-                    Post(() => OnError?.Invoke(msg));
-                }
-                var wasConnected = IsConnected;
-                IsConnected = false;
-                CloseSocket();
-                if (wasConnected) Post(() => OnDisconnected?.Invoke("transport close"));
-                if (_closedByUser || ct.IsCancellationRequested) break;
-                if (++_reconnectAttempts > MAX_RECONNECT_ATTEMPTS)
-                {
-                    Post(() => OnError?.Invoke("reconnect attempts exhausted"));
-                    break;
-                }
-                var delay = Math.Min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * (1 << Math.Min(_reconnectAttempts, 4)));
-                try { await Task.Delay(delay, ct); } catch (OperationCanceledException) { break; }
-            }
+            var tr = _transport;
+            if (tr == null || !tr.IsOpen) return;
+            try { tr.Send(text); }
+            catch (Exception ex) { Post(() => OnError?.Invoke("send failed: " + ex.Message)); }
         }
 
-        private async Task ReceiveLoopAsync(CancellationToken ct)
+        // ---------------------------------------------------------------------
+        // Transport events (may arrive off the main thread on native)
+        // ---------------------------------------------------------------------
+        private void HandleTransportOpen()
         {
-            var buffer = new byte[16 * 1024];
-            var sb = new StringBuilder();
-            while (_ws != null && _ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
-            {
-                sb.Clear();
-                WebSocketReceiveResult r;
-                do
-                {
-                    r = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
-                    if (r.MessageType == WebSocketMessageType.Close) return;
-                    sb.Append(Encoding.UTF8.GetString(buffer, 0, r.Count));
-                } while (!r.EndOfMessage);
-                await HandlePacketAsync(sb.ToString());
-            }
+            // Engine.IO sends the OPEN packet first; nothing to do until then.
         }
 
-        private async Task HandlePacketAsync(string packet)
+        private void HandleTransportMessage(string packet)
         {
             if (packet.Length == 0) return;
             switch (packet[0])
@@ -223,27 +239,58 @@ namespace Deskillz.Realtime
                     try
                     {
                         var open = JObject.Parse(packet.Substring(1));
-                        _pingTimeoutMs = (open.Value<int?>("pingInterval") ?? 25000) + (open.Value<int?>("pingTimeout") ?? 20000);
+                        _pingWindowS = ((open.Value<int?>("pingInterval") ?? 25000) + (open.Value<int?>("pingTimeout") ?? 20000)) / 1000f;
                     }
                     catch (JsonException) { }
                     ArmPingTimeout();
                     var token = _tokenProvider?.Invoke();
                     var auth = string.IsNullOrEmpty(token) ? "{}" : "{\"token\":" + JsonConvert.SerializeObject(token) + "}";
-                    await SendRawAsync("40" + NsPrefix() + auth);
+                    SendRaw("40" + NsPrefix() + auth);
                     break;
                 case '2': // PING -> PONG
                     ArmPingTimeout();
-                    await SendRawAsync("3");
+                    SendRaw("3");
                     break;
                 case '4': // MESSAGE
                     HandleSocketPacket(packet.Substring(1));
                     break;
                 case '1': // CLOSE
-                    CloseSocket();
+                    _transport?.Close();
                     break;
             }
         }
 
+        private void HandleTransportError(string error)
+        {
+            var msg = error;
+            Post(() => OnError?.Invoke(msg));
+        }
+
+        private void HandleTransportClose(int code)
+        {
+            var wasConnected = IsConnected;
+            IsConnected = false;
+            _pingDeadline = -1f;
+            if (wasConnected) Post(() => OnDisconnected?.Invoke("transport close " + code));
+            if (_closedByUser || !_wantConnection) return;
+            if (++_reconnectAttempts > MAX_RECONNECT_ATTEMPTS)
+            {
+                _wantConnection = false;
+                Post(() => OnError?.Invoke("reconnect attempts exhausted"));
+                return;
+            }
+            var delay = Math.Min(RECONNECT_MAX_S, RECONNECT_BASE_S * (1 << Math.Min(_reconnectAttempts, 4)));
+            Post(() => _reconnectAt = Time.realtimeSinceStartup + delay);
+        }
+
+        private void ArmPingTimeout()
+        {
+            Post(() => _pingDeadline = Time.realtimeSinceStartup + _pingWindowS);
+        }
+
+        // ---------------------------------------------------------------------
+        // Socket.IO packet layer
+        // ---------------------------------------------------------------------
         private void HandleSocketPacket(string p)
         {
             if (p.Length == 0) return;
@@ -321,36 +368,5 @@ namespace Deskillz.Realtime
             }
             catch (JsonException) { return payload; }
         }
-
-        private async Task SendRawAsync(string text)
-        {
-            var ws = _ws;
-            if (ws == null || ws.State != WebSocketState.Open) return;
-            var bytes = Encoding.UTF8.GetBytes(text);
-            try { await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None); }
-            catch (Exception ex) { Post(() => OnError?.Invoke("send failed: " + ex.Message)); }
-        }
-
-        private void ArmPingTimeout()
-        {
-            _pingTimeoutTimer?.Dispose();
-            _pingTimeoutTimer = new Timer(_ =>
-            {
-                DeskillzLogger.Warning($"[SocketIO {Namespace}] ping timeout, dropping connection");
-                CloseSocket();
-            }, null, _pingTimeoutMs, Timeout.Infinite);
-        }
-
-        private void CloseSocket()
-        {
-            _pingTimeoutTimer?.Dispose();
-            _pingTimeoutTimer = null;
-            var ws = _ws;
-            _ws = null;
-            if (ws == null) return;
-            try { ws.Abort(); } catch (Exception) { }
-            try { ws.Dispose(); } catch (Exception) { }
-        }
-#endif
     }
 }

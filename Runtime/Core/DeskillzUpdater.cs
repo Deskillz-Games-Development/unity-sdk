@@ -353,7 +353,7 @@ namespace Deskillz
                 {
                     try
                     {
-                        var response = JsonUtility.FromJson<VersionCheckResponse>(request.downloadHandler.text);
+                        var response = DeskillzJson.Deserialize<VersionCheckResponse>(request.downloadHandler.text);
                         
                         LatestUpdateInfo = new UpdateInfo
                         {
