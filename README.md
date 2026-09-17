@@ -1,6 +1,6 @@
 # Deskillz Unity SDK
 
-**Version:** 3.7.0 | **Unity:** 6000.0+ (Unity 6) | **License:** MIT
+**Version:** 3.7.1 | **Unity:** 6000.0+ (Unity 6) | **License:** MIT
 
 Turn a Unity game into a Deskillz skill-gaming title: paid tournaments, quick play,
 private rooms, host-earns social tables (Big 2, Thirteen, Mahjong) and crypto prizes
@@ -69,11 +69,11 @@ verifies it. Checkpoints (`ScoreManager`) stay local; only the final score is se
 | Quick play | `QuickPlayManager.Join(gameId)` -> `quick-play:found` -> launch |
 | Private rooms | `RoomApiClient.CreateRoom`, `JoinRoom(code)`, `SetReady`, `StartMatch` |
 | Social tables | `RoomApiClient.CreateSocialRoom(new CreateSocialRoomConfig { GameType = "BIG2", ... })` |
-| Wallet | `WalletManager.GetBalances`, `Deposit`, `Withdraw` |
+| Wallet | `WalletManager.GetBalances` |
 | Disputes | `DisputeManager.File(...)` |
 
 All REST calls use `/api/v1/...` on the platform origin
-`https://newdeskillzgames-production.up.railway.app`.
+`https://api.deskillz.games`.
 
 ## Realtime
 

@@ -258,7 +258,7 @@ namespace Deskillz.Multiplayer
 
             // Get WebSocket URL from config
             var config = DeskillzConfig.Instance;
-            var wsUrl = config?.WebSocketUrl ?? "wss://sync.deskillz.games";
+            var wsUrl = config?.WebSocketUrl ?? DeskillzConfig.PLATFORM_API_HOST; // [A5-3.7.1]
             var fullUrl = $"{wsUrl}/room/{_roomId}?player={_localPlayerId}";
 
             // Create WebSocket connection

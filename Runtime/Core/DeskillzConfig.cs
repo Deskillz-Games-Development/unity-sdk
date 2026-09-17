@@ -21,7 +21,7 @@ namespace Deskillz
         /// <summary>
         /// Current SDK version.
         /// </summary>
-        public const string SDK_VERSION = "3.7.0"; // [P1-3.7.0]
+        public const string SDK_VERSION = "3.7.1"; // [P1-3.7.0] [A5-3.7.1]
 
         /// <summary>
         /// Minimum supported Unity version.
@@ -274,7 +274,7 @@ namespace Deskillz
         // Sandbox is kept for inspector compatibility (there is no separate host).
         // =============================================================================
 
-        public const string PLATFORM_API_HOST = "https://newdeskillzgames-production.up.railway.app";
+        public const string PLATFORM_API_HOST = "https://api.deskillz.games"; // [A5-3.7.1]
         public const string DEVELOPMENT_API_HOST = "http://localhost:3001";
 
         /// <summary>API origin without any path (scheme + host).</summary>

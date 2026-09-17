@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.7.1 -- 2026-09-17
+
+### Changed
+- Default API origin is `https://api.deskillz.games` (REST under `/api/v1`,
+  Socket.IO on the same host). `DeskillzConfig.ApiHostOverride` still overrides it.
+- `SDK_VERSION` is 3.7.1 (sent as `X-SDK-Version`).
+
+### Fixed
+- `SyncManager` no longer falls back to a host that does not exist when no config
+  asset is loaded.
+
 ## 3.7.0 -- 2026-09-15
 
 First release that compiles and talks to the live platform.
