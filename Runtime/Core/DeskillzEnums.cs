@@ -368,6 +368,7 @@ namespace Deskillz
     /// <summary>
     /// Supported cryptocurrencies (BSC and TRON networks)
     /// v3.5.2: Removed unsupported ETH/MATIC
+    /// v3.7.7: Removed USDC_TRON (not a platform currency) [N790-3.7.7]
     /// </summary>
     public enum Currency
     {
@@ -376,8 +377,7 @@ namespace Deskillz
         BNB,
         USDT_BSC,
         USDT_TRON,
-        USDC_BSC,
-        USDC_TRON
+        USDC_BSC
     }
 
     /// <summary>
@@ -394,7 +394,6 @@ namespace Deskillz
             { Currency.USDT_BSC, "USDT (BSC)" },
             { Currency.USDT_TRON, "USDT (Tron)" },
             { Currency.USDC_BSC, "USDC (BSC)" },
-            { Currency.USDC_TRON, "USDC (Tron)" },
         };
 
         private static readonly Dictionary<Currency, string> Symbols = new Dictionary<Currency, string>
@@ -405,7 +404,6 @@ namespace Deskillz
             { Currency.USDT_BSC, "USDT" },
             { Currency.USDT_TRON, "USDT" },
             { Currency.USDC_BSC, "USDC" },
-            { Currency.USDC_TRON, "USDC" },
         };
 
         private static readonly Dictionary<Currency, string> Networks = new Dictionary<Currency, string>
@@ -416,7 +414,6 @@ namespace Deskillz
             { Currency.USDT_BSC, "BSC" },
             { Currency.USDT_TRON, "TRON" },
             { Currency.USDC_BSC, "BSC" },
-            { Currency.USDC_TRON, "TRON" },
         };
 
         /// <summary>Get display label (e.g. "USDT (BSC)")</summary>

@@ -4,7 +4,10 @@
 // Version: 3.5.2 (Web SDK Parity - Phase 1)
 // =============================================================================
 //
-// Handles SSO token consumption, active session resume, and guest mode.
+// Handles active session resume and guest mode. [N790-3.7.7] The ?token= of a
+// launch link is a single-use launch token, exchanged by DeskillzManager
+// (LaunchSession.Exchange); the old SSO path that used it as a sign-in token
+// is gone.
 // Mirrors DeskillzBridge.ts lines 951-1184.
 //
 // Called automatically by DeskillzManager during initialization.
@@ -21,7 +24,7 @@ using UnityEngine.Networking;
 namespace Deskillz
 {
     /// <summary>
-    /// Manages SSO tokens, session resume, and guest mode.
+    /// Manages session resume and guest mode.
     /// </summary>
     public static class DeskillzSessionManager
     {
@@ -42,84 +45,11 @@ namespace Deskillz
         // EVENTS
         // =====================================================================
 
-        /// <summary>Fired when SSO token is consumed and user authenticated</summary>
-        public static event Action<AuthUser> OnSSOAuthenticated;
-
         /// <summary>Fired when an active session is found (room reconnect)</summary>
         public static event Action<ActiveSessionPayload> OnSessionResumed;
 
         /// <summary>Fired when guest mode is activated</summary>
         public static event Action OnGuestModeActivated;
-
-        // =====================================================================
-        // SSO TOKEN HANDOFF (1.1)
-        // =====================================================================
-
-        /// <summary>
-        /// Consume an SSO token from a launch URL.
-        /// Checks Application.absoluteURL for ?token= parameter.
-        /// Called automatically during initialization.
-        /// </summary>
-        public static void ConsumeSSOToken()
-        {
-            var url = Application.absoluteURL;
-            if (string.IsNullOrEmpty(url)) return;
-
-            var token = ExtractQueryParam(url, "token");
-            if (string.IsNullOrEmpty(token))
-            {
-                DeskillzLogger.Debug("[SessionManager] No SSO token in launch URL");
-                return;
-            }
-
-            DeskillzLogger.Info("[SessionManager] SSO token found, authenticating...");
-
-            // Set the token on the network layer
-            var network = DeskillzManager.Instance?.Network;
-            if (network != null)
-            {
-                network.SetAuthToken(token);
-            }
-
-            // Validate the token by fetching user profile
-            ValidateSSOToken(token);
-        }
-
-        private static void ValidateSSOToken(string token)
-        {
-            DeskillzManager.Instance?.StartCoroutine(ValidateSSOTokenAsync(token));
-        }
-
-        private static IEnumerator ValidateSSOTokenAsync(string token)
-        {
-            var baseUrl = DeskillzManager.Instance?.Config?.ApiBaseUrl ?? DeskillzConfig.PLATFORM_API_HOST;
-            var url = $"{baseUrl}/api/v1/users/me";
-
-            using var request = UnityWebRequest.Get(url);
-            request.timeout = 15;
-            request.SetRequestHeader("Authorization", $"Bearer {token}");
-            request.SetRequestHeader("X-SDK-Version", DeskillzConfig.SDK_VERSION);
-
-            yield return request.SendWebRequest();
-
-            if (request.result == UnityWebRequest.Result.Success)
-            {
-                try
-                {
-                    var user = DeskillzJson.DeserializeRaw<AuthUser>(request.downloadHandler.text);
-                    DeskillzLogger.Info($"[SessionManager] SSO authenticated: {user.Username}");
-                    OnSSOAuthenticated?.Invoke(user);
-                }
-                catch (Exception ex)
-                {
-                    DeskillzLogger.Error($"[SessionManager] SSO token validation parse error: {ex.Message}");
-                }
-            }
-            else
-            {
-                DeskillzLogger.Warning($"[SessionManager] SSO token invalid or expired: {request.error}");
-            }
-        }
 
         // =====================================================================
         // ACTIVE SESSION RESUME (1.2, 1.3)
@@ -246,35 +176,6 @@ namespace Deskillz
         {
             IsGuest = false;
             ActiveSession = null;
-        }
-
-        // =====================================================================
-        // HELPERS
-        // =====================================================================
-
-        /// <summary>
-        /// Extract a query parameter from a URL string.
-        /// </summary>
-        private static string ExtractQueryParam(string url, string paramName)
-        {
-            if (string.IsNullOrEmpty(url)) return null;
-
-            var queryStart = url.IndexOf('?');
-            if (queryStart < 0) return null;
-
-            var query = url.Substring(queryStart + 1);
-            var pairs = query.Split('&');
-
-            foreach (var pair in pairs)
-            {
-                var kv = pair.Split('=');
-                if (kv.Length == 2 && kv[0] == paramName)
-                {
-                    return UnityEngine.Networking.UnityWebRequest.UnEscapeURL(kv[1]);
-                }
-            }
-
-            return null;
         }
     }
 }

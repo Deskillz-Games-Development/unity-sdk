@@ -237,7 +237,7 @@ namespace Deskillz.Match
             {
                 case Currency.BNB: return "BNB";
                 case Currency.USDT_BSC: case Currency.USDT_TRON: return "USDT";
-                case Currency.USDC_BSC: case Currency.USDC_TRON: return "USDC";
+                case Currency.USDC_BSC: return "USDC";
                 case Currency.USD: return "$";
                 default: return "";
             }
@@ -254,7 +254,6 @@ namespace Deskillz.Match
                 case Currency.USDT_BSC: return "Tether USD (BNB Chain)";
                 case Currency.USDT_TRON: return "Tether USD (Tron)";
                 case Currency.USDC_BSC: return "USD Coin (BNB Chain)";
-                case Currency.USDC_TRON: return "USD Coin (Tron)";
                 case Currency.USD: return "US Dollar";
                 case Currency.Free: return "Free";
                 default: return currency.ToString();
@@ -267,7 +266,7 @@ namespace Deskillz.Match
         public static bool IsStablecoin(this Currency currency)
         {
             return currency == Currency.USDT_BSC || currency == Currency.USDT_TRON
-                || currency == Currency.USDC_BSC || currency == Currency.USDC_TRON;
+                || currency == Currency.USDC_BSC; // [N790-3.7.7] no USDC_TRON
         }
 
         /// <summary>

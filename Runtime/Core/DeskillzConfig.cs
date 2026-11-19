@@ -21,7 +21,7 @@ namespace Deskillz
         /// <summary>
         /// Current SDK version.
         /// </summary>
-        public const string SDK_VERSION = "3.7.1"; // [P1-3.7.0] [A5-3.7.1]
+        public const string SDK_VERSION = "3.7.7"; // [P1-3.7.0] [A5-3.7.1] [N790-3.7.7]
 
         /// <summary>
         /// Minimum supported Unity version.

@@ -132,10 +132,19 @@ namespace Deskillz
                     case "match:all_ready":
                     case "match:player_joined":
                     case "match:player_left":
-                    case "match:progress":
                     case "match:state_change":
                     case "match:cancelled":
                         DeskillzLogger.Verbose($"[RealtimeRouter] {eventType}");
+                        break;
+
+                    case "match:progress": // [N790-3.7.7] another seat's display-only live score
+                        var progress = DeskillzJson.DeserializeRaw<ProgressPayload>(jsonData);
+                        if (progress != null && !string.IsNullOrEmpty(progress.odid) && progress.score.HasValue)
+                        {
+                            var live = (int)Math.Round(progress.score.Value);
+                            DeskillzEvents.RaisePlayerScoreUpdated(progress.odid, live);
+                            DeskillzEvents.RaiseOpponentScoreUpdated(progress.odid, live);
+                        }
                         break;
 
                     // ---------------- private rooms (lobby.gateway "/lobby") ----------------
@@ -175,6 +184,14 @@ namespace Deskillz
         private class TournamentIdPayload
         {
             public string tournamentId;
+        }
+
+        /// <summary>match:progress { odid, username, score, board, at } [N790-3.7.7]</summary>
+        [Serializable]
+        private class ProgressPayload
+        {
+            public string odid;
+            public double? score;
         }
     }
 }

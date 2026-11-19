@@ -120,25 +120,9 @@ namespace Deskillz.Host
             );
         }
 
-        /// <summary>
-        /// Request withdrawal of available balance
-        /// </summary>
-        public static void RequestWithdrawal(
-            WithdrawRequest request,
-            Action<WithdrawalResponse> onSuccess,
-            Action<HostError> onError)
-        {
-            var json = DeskillzJson.Serialize(request);
-
-            DeskillzManager.Instance.StartCoroutine(
-                PostRequest<WithdrawalResponse>(
-                    $"{HOST_ENDPOINT}/withdraw",
-                    json,
-                    onSuccess,
-                    onError
-                )
-            );
-        }
+        // [N790-3.7.7] RequestWithdrawal removed: POST /host/withdraw no longer
+        // exists. Host earnings are part of the Deskillz balance and are
+        // withdrawn on deskillz.games (WalletManager.OpenWithdraw).
 
         // =====================================================================
         // BADGE ENDPOINTS
@@ -621,21 +605,6 @@ namespace Deskillz.Host
     // =========================================================================
     // ADDITIONAL RESPONSE MODELS
     // =========================================================================
-
-    /// <summary>
-    /// Withdrawal response
-    /// </summary>
-    [Serializable]
-    public class WithdrawalResponse
-    {
-        public string Id;
-        public decimal Amount;
-        public string Currency;
-        public string Status;
-        public string TxHash;
-        public DateTime CreatedAt;
-        public DateTime? CompletedAt;
-    }
 
     /// <summary>
     /// Tier history entry

@@ -292,59 +292,9 @@ namespace Deskillz.Host
             HostApiClient.GetEarningsHistory(page, limit, onSuccess, onError);
         }
 
-        /// <summary>
-        /// Request withdrawal of available balance.
-        /// </summary>
-        /// <param name="amount">Amount to withdraw in USD</param>
-        /// <param name="currency">Cryptocurrency to receive (USDT, USDC, BNB, etc.)</param>
-        /// <param name="walletAddress">Destination wallet address</param>
-        /// <param name="onSuccess">Called with withdrawal response on success</param>
-        /// <param name="onError">Called on error</param>
-        public static void RequestWithdrawal(
-            decimal amount,
-            string currency,
-            string walletAddress,
-            Action<WithdrawalResponse> onSuccess = null,
-            Action<HostError> onError = null)
-        {
-            EnsureInitialized();
-
-            if (!ValidateAuthentication(onError)) return;
-
-            // Validate amount
-            if (CurrentEarnings != null && amount > CurrentEarnings.Available)
-            {
-                onError?.Invoke(new HostError(
-                    HostError.Codes.InsufficientBalance,
-                    $"Insufficient balance. Available: ${CurrentEarnings.Available}"
-                ));
-                return;
-            }
-
-            var request = new WithdrawRequest
-            {
-                amount = amount,
-                currency = currency,
-                walletAddress = walletAddress
-            };
-
-            HostApiClient.RequestWithdrawal(request,
-                response =>
-                {
-                    HostEvents.InvokeWithdrawalInitiated(amount, currency);
-                    onSuccess?.Invoke(response);
-                    DeskillzLogger.Debug($"[HostManager] Withdrawal requested: ${amount} {currency}");
-
-                    // Refresh earnings to update available balance
-                    GetEarnings();
-                },
-                error =>
-                {
-                    HostEvents.InvokeWithdrawalFailed(error);
-                    onError?.Invoke(error);
-                }
-            );
-        }
+        // [N790-3.7.7] RequestWithdrawal removed: host earnings are part of the
+        // Deskillz balance and are withdrawn on deskillz.games
+        // (WalletManager.OpenWithdraw).
 
         // =====================================================================
         // BADGE MANAGEMENT

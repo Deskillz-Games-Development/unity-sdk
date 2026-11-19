@@ -1,7 +1,7 @@
 // =============================================================================
 // Deskillz SDK for Unity - Wallet & Profile Manager
 // Copyright (c) 2024-2026 Deskillz.Games. All rights reserved.
-// Version: 3.5.2 (Web SDK Parity - Phase 7)
+// Version: 3.7.7 (money moves on deskillz.games only) [N790-3.7.7]
 // =============================================================================
 //
 // Multi-currency wallet operations, player stats, match history, leaderboard.
@@ -22,39 +22,33 @@ namespace Deskillz.Wallet
     // REQUEST/RESPONSE MODELS
     // =========================================================================
 
+    /// <summary>
+    /// One token credited at a deposit address. [N790-3.7.7]
+    /// </summary>
     [Serializable]
-    internal class DepositRequest
+    public class DepositToken
     {
-        public string currency;
-        public decimal amount;
+        public string Currency;
+        public string TokenContract;
+        public int Decimals;
     }
 
+    /// <summary>
+    /// The player's own deposit address on one chain
+    /// (GET /api/v1/wallet/deposit-address/:chain). Any wallet or exchange can
+    /// send to it; the platform credits the transfer automatically. [N790-3.7.7]
+    /// </summary>
     [Serializable]
-    internal class WithdrawRequest
+    public class ChainDepositAddress
     {
-        public string currency;
-        public decimal amount;
-        public string walletAddress;
-    }
-
-    [Serializable]
-    public class DepositResponse
-    {
-        public bool success;
-        public string transactionId;
-        public string depositAddress;
-        public string currency;
-        public decimal amount;
-    }
-
-    [Serializable]
-    public class WithdrawResponse
-    {
-        public bool success;
-        public string transactionId;
-        public decimal amount;
-        public string currency;
-        public string estimatedArrival;
+        public string Chain;
+        public string Network;
+        public string Address;
+        public List<DepositToken> Tokens;
+        public decimal MinAmount;
+        public int Confirmations;
+        public bool LinkedWalletOnly;
+        public string CreatedAt;
     }
 
     [Serializable]
@@ -124,6 +118,8 @@ namespace Deskillz.Wallet
     public static class WalletManager
     {
         private const string WALLET_ENDPOINT = "/api/v1/wallet";
+        /// <summary>The Deskillz site, where players add funds and withdraw. [N790-3.7.7]</summary>
+        public const string SITE_URL = "https://deskillz.games";
         private const string USERS_ENDPOINT = "/api/v1/users";
         private const string MATCHES_ENDPOINT = "/api/v1/matches/history/me";
         private const string LEADERBOARD_ENDPOINT = "/api/v1/leaderboard";
@@ -138,7 +134,7 @@ namespace Deskillz.Wallet
 
         /// <summary>
         /// Get all wallet balances (multi-currency).
-        /// GET /api/v1/wallet/balance
+        /// GET /api/v1/wallet/balances
         /// </summary>
         public static void GetBalance(
             Action<List<WalletBalanceEntry>> onSuccess,
@@ -163,7 +159,7 @@ namespace Deskillz.Wallet
 
         /// <summary>
         /// Get balance for a specific currency.
-        /// GET /api/v1/wallet/balance/:currency
+        /// GET /api/v1/wallet/balances/:currency
         /// </summary>
         public static void GetBalanceForCurrency(
             string currency,
@@ -179,52 +175,43 @@ namespace Deskillz.Wallet
         }
 
         // =====================================================================
-        // DEPOSIT (7.3)
+        // DEPOSIT ADDRESS (7.3) [N790-3.7.7]
         // =====================================================================
 
         /// <summary>
-        /// Initiate a deposit.
-        /// POST /api/v1/wallet/deposit
+        /// The player's own deposit address on a chain: "bsc" (USDT or USDC on
+        /// BNB Smart Chain) or "tron" (USDT on Tron). Funds sent there from any
+        /// wallet or exchange are credited to the player's Deskillz balance.
+        /// GET /api/v1/wallet/deposit-address/:chain
         /// </summary>
-        public static void Deposit(
-            string currency,
-            decimal amount,
-            Action<DepositResponse> onSuccess,
+        public static void GetDepositAddress(
+            string chain,
+            Action<ChainDepositAddress> onSuccess,
             Action<WalletError> onError)
         {
-            var body = new DepositRequest { currency = currency, amount = amount };
-            var json = DeskillzJson.Serialize(body);
-            DeskillzManager.Instance.StartCoroutine(
-                PostRequest<DepositResponse>($"{WALLET_ENDPOINT}/deposit", json, onSuccess, onError)
-            );
-        }
-
-        // =====================================================================
-        // WITHDRAW (7.4)
-        // =====================================================================
-
-        /// <summary>
-        /// Initiate a withdrawal.
-        /// POST /api/v1/wallet/withdraw
-        /// </summary>
-        public static void Withdraw(
-            string currency,
-            decimal amount,
-            string walletAddress,
-            Action<WithdrawResponse> onSuccess,
-            Action<WalletError> onError)
-        {
-            var body = new WithdrawRequest
+            var c = (chain ?? "").Trim().ToLowerInvariant();
+            if (c != "bsc" && c != "tron")
             {
-                currency = currency,
-                amount = amount,
-                walletAddress = walletAddress,
-            };
-            var json = DeskillzJson.Serialize(body);
+                onError?.Invoke(new WalletError("BAD_CHAIN", "Use bsc or tron."));
+                return;
+            }
             DeskillzManager.Instance.StartCoroutine(
-                PostRequest<WithdrawResponse>($"{WALLET_ENDPOINT}/withdraw", json, onSuccess, onError)
+                GetRequest<ChainDepositAddress>($"{WALLET_ENDPOINT}/deposit-address/{c}", onSuccess, onError)
             );
         }
+
+        // =====================================================================
+        // ADD FUNDS AND WITHDRAW (7.4) [N790-3.7.7]
+        // =====================================================================
+        // Money moves only on deskillz.games: POST /wallet/deposit no longer
+        // exists and a game session cannot withdraw. Give your wallet screen an
+        // Add funds and a Withdraw button that call these.
+
+        /// <summary>Open the Add funds page on deskillz.games.</summary>
+        public static void OpenAddFunds() => Application.OpenURL(SITE_URL + "/add-funds");
+
+        /// <summary>Open the Withdraw form on deskillz.games.</summary>
+        public static void OpenWithdraw() => Application.OpenURL(SITE_URL + "/transactions?withdraw=1");
 
         // =====================================================================
         // PLAYER STATS (7.5)

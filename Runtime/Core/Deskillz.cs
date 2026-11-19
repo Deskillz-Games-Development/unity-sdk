@@ -174,11 +174,59 @@ namespace Deskillz
             CurrentMatch.LocalPlayerScore = score;
             DeskillzEvents.RaiseLocalScoreUpdated(score);
 
-            // Broadcast to other players in real-time matches
+            // Show it to the other players in real-time matches
             if (CurrentMatch.IsRealtime && Network?.IsConnected == true)
             {
-                // [P1-3.7.0] relay live score to the other seats (game:state via match:relay)
-                Network.Relay("game:state", new { playerId = CurrentPlayer.Id, score });
+                // [N790-3.7.7] match:progress (display only, any seat), not game:state
+                // (which a table with a host accepts from the host only)
+                Network.SendProgress(score);
+            }
+        }
+
+        /// <summary>
+        /// The board seed of the current live match, from the server
+        /// (GET /api/v1/matches/:matchId/seed, seated players only). Every seat gets
+        /// the same seed; build anything the server reproduces from it with a
+        /// seeded Fisher-Yates, never a random comparator. [N790-3.7.7]
+        /// </summary>
+        public static void GetMatchSeed(Action<long> onSeed, Action<DeskillzError> onError = null)
+        {
+            if (!IsReady || CurrentMatch == null || string.IsNullOrEmpty(CurrentMatch.MatchId))
+            {
+                onError?.Invoke(new DeskillzError(ErrorCode.Unknown, "No live match"));
+                return;
+            }
+            if (TestMode)
+            {
+                onSeed?.Invoke(TestSeed(CurrentMatch.MatchId));
+                return;
+            }
+            Manager.Run(Network.Get<MatchSeed>(
+                $"/matches/{CurrentMatch.MatchId}/seed",
+                seed =>
+                {
+                    if (seed == null) onError?.Invoke(new DeskillzError(ErrorCode.Unknown, "No seed"));
+                    else onSeed?.Invoke(seed.Seed);
+                },
+                onError));
+        }
+
+        /// <summary>Server answer of GET /matches/:matchId/seed. [N790-3.7.7]</summary>
+        [Serializable]
+        public class MatchSeed
+        {
+            public string MatchId;
+            public long Seed;
+        }
+
+        // Test mode only: a stable seed from the match id (FNV-1a).
+        private static long TestSeed(string matchId)
+        {
+            unchecked
+            {
+                uint h = 2166136261;
+                foreach (var ch in matchId) { h ^= ch; h *= 16777619; }
+                return h;
             }
         }
 
@@ -322,27 +370,43 @@ namespace Deskillz
             /// </summary>
             public static void SendMessage<T>(T data)
             {
-                // [P1-3.7.0 fixB] broadcast to the other seats via match:relay (game:action)
+                // [P1-3.7.0 fixB] broadcast to the other seats via match:relay (game:action);
+                // [N790-3.7.7] the server adds senderUserId, so no sender field is sent
                 if (!IsConnected)
                 {
                     DeskillzLogger.Warning("Cannot send message: not connected");
                     return;
                 }
-                Network.Relay("game:action", new { senderId = CurrentPlayer?.Id, data });
+                Network.Relay("game:action", new { data });
             }
 
             /// <summary>
-            /// Send a message to a specific player.
+            /// Send a message to one player only (match:relay_to). [N790-3.7.7] It used
+            /// to go to every seat with a targetId for the receivers to filter.
             /// </summary>
             public static void SendToPlayer<T>(string playerId, T data)
             {
-                // [P1-3.7.0 fixB] the relay is room-wide; receivers filter on targetId
                 if (!IsConnected)
                 {
                     DeskillzLogger.Warning("Cannot send message: not connected");
                     return;
                 }
-                Network.Relay("game:action", new { senderId = CurrentPlayer?.Id, targetId = playerId, data });
+                Network.RelayTo(playerId, "game:action", new { data });
+            }
+
+            /// <summary>
+            /// Send any relayable game event to one seated player (match:relay_to),
+            /// e.g. a private hand: RelayTo(playerId, "game:hand", hand). The table
+            /// host sends the host events. [N790-3.7.7]
+            /// </summary>
+            public static void RelayTo(string playerId, string gameEvent, object payload)
+            {
+                if (!IsConnected)
+                {
+                    DeskillzLogger.Warning("Cannot send message: not connected");
+                    return;
+                }
+                Network.RelayTo(playerId, gameEvent, payload);
             }
 
             /// <summary>
@@ -362,7 +426,8 @@ namespace Deskillz
             }
 
             /// <summary>
-            /// Update and broadcast local player state.
+            /// Update and broadcast local player state (game:state). At a table with a
+            /// host the server accepts game:state from the table host only. [N790-3.7.7]
             /// </summary>
             public static void SetLocalState<T>(T data)
             {

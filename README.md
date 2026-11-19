@@ -1,6 +1,6 @@
 # Deskillz Unity SDK
 
-**Version:** 3.7.1 | **Unity:** 6000.0+ (Unity 6) | **License:** MIT
+**Version:** 3.7.7 | **Unity:** 6000.0+ (Unity 6) | **License:** MIT
 
 Turn a Unity game into a Deskillz skill-gaming title: paid tournaments, quick play,
 private rooms, host-earns social tables (Big 2, Thirteen, Mahjong) and crypto prizes
@@ -69,7 +69,7 @@ verifies it. Checkpoints (`ScoreManager`) stay local; only the final score is se
 | Quick play | `QuickPlayManager.Join(gameId)` -> `quick-play:found` -> launch |
 | Private rooms | `RoomApiClient.CreateRoom`, `JoinRoom(code)`, `SetReady`, `StartMatch` |
 | Social tables | `RoomApiClient.CreateSocialRoom(new CreateSocialRoomConfig { GameType = "BIG2", ... })` |
-| Wallet | `WalletManager.GetBalances` |
+| Wallet | `WalletManager.GetBalance`, `GetDepositAddress("bsc")`, `OpenAddFunds()`, `OpenWithdraw()` (money moves on deskillz.games) |
 | Disputes | `DisputeManager.File(...)` |
 
 All REST calls use `/api/v1/...` on the platform origin
@@ -83,6 +83,11 @@ Socket.IO v4 on the same origin, two namespaces: `/` (match relay) and `/lobby`
 `game:round-ready`, `game:round-ready-state`, `game:ping`, `game:pong`.
 Raw access: `DeskillzEvents.OnSocketMessage(eventName, json)`; send with
 `DeskillzManager.Instance.Network.Relay("game:action", payload)`.
+A private hand goes to its player only: `Deskillz.Multiplayer.RelayTo(playerId,
+"game:hand", hand)` (`match:relay_to`). At a table with a host, `game:state`,
+`game:round-end`, `game:game-end` and `game:round-ready-state` come from the
+table host only. The server adds `senderUserId` to every relayed payload; trust
+it, not a sender field. Board seeds come from `Deskillz.GetMatchSeed`.
 
 Native platforms use `System.Net.WebSockets`; Web builds use the browser socket through
 `Runtime/Plugins/WebGL/DeskillzWebSocket.jslib`. A Unity **Web** build can be uploaded

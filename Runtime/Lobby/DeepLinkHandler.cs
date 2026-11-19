@@ -428,7 +428,7 @@ namespace Deskillz
         /// </summary>
         private Currency ParseCurrency(string currency)
         {
-            // [P1-3.7.0 fixC] platform currency set: BNB, USDT/USDC on BSC and Tron, Free
+            // [P1-3.7.0 fixC] platform currency set; [N790-3.7.7] USDC is BSC only
             if (string.IsNullOrEmpty(currency)) return Currency.USDT_BSC;
             switch (currency.Trim().ToUpperInvariant().Replace('-', '_'))
             {
@@ -436,7 +436,6 @@ namespace Deskillz
                 case "USDT": case "USDT_BSC": case "USDT_BEP20": return Currency.USDT_BSC;
                 case "USDT_TRON": case "USDT_TRC20": return Currency.USDT_TRON;
                 case "USDC": case "USDC_BSC": case "USDC_BEP20": return Currency.USDC_BSC;
-                case "USDC_TRON": case "USDC_TRC20": return Currency.USDC_TRON;
                 case "USD": return Currency.USD;
                 case "FREE": return Currency.Free;
                 default: return Currency.USDT_BSC;

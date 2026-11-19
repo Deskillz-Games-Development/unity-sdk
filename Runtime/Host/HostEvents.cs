@@ -103,20 +103,7 @@ namespace Deskillz.Host
         /// </summary>
         public static event Action<decimal> OnBalanceChanged;
 
-        /// <summary>
-        /// Fired when withdrawal is initiated
-        /// </summary>
-        public static event Action<decimal, string> OnWithdrawalInitiated;
-
-        /// <summary>
-        /// Fired when withdrawal completes
-        /// </summary>
-        public static event Action<decimal, string> OnWithdrawalCompleted;
-
-        /// <summary>
-        /// Fired when withdrawal fails
-        /// </summary>
-        public static event Action<HostError> OnWithdrawalFailed;
+        // [N790-3.7.7] the withdrawal events left with the host withdraw calls
 
         // =====================================================================
         // STREAK EVENTS
@@ -253,21 +240,6 @@ namespace Deskillz.Host
             OnBalanceChanged?.Invoke(newBalance);
         }
 
-        internal static void InvokeWithdrawalInitiated(decimal amount, string currency)
-        {
-            OnWithdrawalInitiated?.Invoke(amount, currency);
-        }
-
-        internal static void InvokeWithdrawalCompleted(decimal amount, string txHash)
-        {
-            OnWithdrawalCompleted?.Invoke(amount, txHash);
-        }
-
-        internal static void InvokeWithdrawalFailed(HostError error)
-        {
-            OnWithdrawalFailed?.Invoke(error);
-        }
-
         internal static void InvokeStreakIncreased(int newStreak)
         {
             OnStreakIncreased?.Invoke(newStreak);
@@ -336,9 +308,6 @@ namespace Deskillz.Host
             OnEarningsLoaded = null;
             OnEarningsReceived = null;
             OnBalanceChanged = null;
-            OnWithdrawalInitiated = null;
-            OnWithdrawalCompleted = null;
-            OnWithdrawalFailed = null;
             OnStreakIncreased = null;
             OnStreakBroken = null;
             OnStreakBonusApplied = null;

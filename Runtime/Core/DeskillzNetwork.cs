@@ -379,9 +379,13 @@ namespace Deskillz
         }
 
         /// <summary>
-        /// Relay a game event to the other seats via match:relay. gameEvent must be one of
-        /// game:state, game:hand, game:action, game:round-end, game:game-end, game:request-sync,
+        /// Relay a game event to every other seat via match:relay. gameEvent must be one of
+        /// game:state, game:action, game:round-end, game:game-end, game:request-sync,
         /// game:chat, game:round-ready, game:round-ready-state, game:ping, game:pong.
+        /// [N790-3.7.7] game:hand is never broadcast: send it with RelayTo. At a table
+        /// with a host, game:state, game:round-end, game:game-end and
+        /// game:round-ready-state are accepted from the table host only. The server
+        /// adds senderUserId to every object payload.
         /// </summary>
         public void Relay(string gameEvent, object payload)
         {
@@ -395,6 +399,39 @@ namespace Deskillz
                 var err = DeskillzJson.GetString(ack, "error");
                 if (!string.IsNullOrEmpty(err)) DeskillzLogger.Warning($"match:relay {gameEvent} refused: {err}");
             });
+        }
+
+        /// <summary>
+        /// Send a game event to ONE seated player via match:relay_to: a private hand
+        /// (game:hand) or a message only that seat may read. [N790-3.7.7]
+        /// </summary>
+        public void RelayTo(string toUserId, string gameEvent, object payload)
+        {
+            if (string.IsNullOrEmpty(_currentMatchId))
+            {
+                DeskillzLogger.Warning("Cannot relay: no match room joined");
+                return;
+            }
+            if (string.IsNullOrEmpty(toUserId))
+            {
+                DeskillzLogger.Warning("Cannot relay_to: no player id");
+                return;
+            }
+            Emit("match:relay_to", new { matchId = _currentMatchId, toUserId, @event = gameEvent, payload }, ack =>
+            {
+                var err = DeskillzJson.GetString(ack, "error");
+                if (!string.IsNullOrEmpty(err)) DeskillzLogger.Warning($"match:relay_to {gameEvent} refused: {err}");
+            });
+        }
+
+        /// <summary>
+        /// Display-only live score for the other seats (match:progress). Any seat may
+        /// send it; it is not a score submission. [N790-3.7.7]
+        /// </summary>
+        public void SendProgress(int score)
+        {
+            if (string.IsNullOrEmpty(_currentMatchId)) return;
+            Emit("match:progress", new { matchId = _currentMatchId, score });
         }
 
         /// <summary>Legacy multiplayer message: relayed as game:state (StateSync) or game:action.</summary>
@@ -441,7 +478,13 @@ namespace Deskillz
                 try
                 {
                     var message = DeskillzJson.Deserialize<global::Deskillz.Multiplayer.NetworkMessage>(dataJson);
-                    if (message != null) DeskillzEvents.RaiseMessageReceived(message);
+                    if (message != null)
+                    {
+                        // [N790-3.7.7] the sender is the server's senderUserId, never a field the sender wrote
+                        var sender = DeskillzJson.GetString(dataJson, "senderUserId");
+                        if (!string.IsNullOrEmpty(sender)) message.SenderId = sender;
+                        DeskillzEvents.RaiseMessageReceived(message);
+                    }
                 }
                 catch (Exception)
                 {

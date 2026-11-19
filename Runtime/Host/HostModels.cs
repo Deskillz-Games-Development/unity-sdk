@@ -553,17 +553,6 @@ namespace Deskillz.Host
     }
 
     /// <summary>
-    /// Request to withdraw earnings
-    /// </summary>
-    [Serializable]
-    public class WithdrawRequest
-    {
-        public decimal amount;
-        public string currency;
-        public string walletAddress;
-    }
-
-    /// <summary>
     /// API response wrapper for host data
     /// </summary>
     [Serializable]

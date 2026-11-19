@@ -6,8 +6,7 @@
 //
 // Extends existing HostManager with v3.5.2 methods:
 //   - GetDashboard() composite endpoint (8.1)
-//   - WithdrawHostEarnings() simplified (8.2)
-//   - RequestHostWithdrawal() with params (8.3)
+//   - (8.2 / 8.3 host withdraw removed in 3.7.7: earnings are withdrawn on deskillz.games)
 //   - CheckAgeVerified() status check (8.4)
 //
 // Path: Runtime/Host/HostDashboardExtensions.cs
@@ -106,27 +105,6 @@ namespace Deskillz.Host
     }
 
     /// <summary>
-    /// Withdrawal request params
-    /// </summary>
-    [Serializable]
-    internal class HostWithdrawalRequest
-    {
-        public decimal amount;
-        public string currency;
-        public string walletAddress;
-    }
-
-    /// <summary>
-    /// Withdrawal response
-    /// </summary>
-    [Serializable]
-    public class HostWithdrawalResponse
-    {
-        public string TransactionId;
-        public string EstimatedArrival;
-    }
-
-    /// <summary>
     /// Age verification status
     /// </summary>
     [Serializable]
@@ -166,55 +144,9 @@ namespace Deskillz.Host
             );
         }
 
-        // =====================================================================
-        // WITHDRAW EARNINGS - SIMPLIFIED (8.2)
-        // =====================================================================
-
-        /// <summary>
-        /// Withdraw all available host earnings to primary wallet.
-        /// POST /api/v1/host/withdraw
-        /// </summary>
-        public static void WithdrawAllEarnings(
-            Action<HostWithdrawalResponse> onSuccess,
-            Action<HostError> onError)
-        {
-            DeskillzManager.Instance.StartCoroutine(
-                PostRequest<HostWithdrawalResponse>(
-                    $"{HOST_ENDPOINT}/withdraw", "{}",
-                    onSuccess, onError
-                )
-            );
-        }
-
-        // =====================================================================
-        // REQUEST WITHDRAWAL WITH PARAMS (8.3)
-        // =====================================================================
-
-        /// <summary>
-        /// Request host earnings withdrawal with specific amount, currency, and wallet.
-        /// POST /api/v1/host/withdraw
-        /// </summary>
-        public static void RequestWithdrawal(
-            decimal amount,
-            string currency,
-            string walletAddress,
-            Action<HostWithdrawalResponse> onSuccess,
-            Action<HostError> onError)
-        {
-            var body = new HostWithdrawalRequest
-            {
-                amount = amount,
-                currency = currency,
-                walletAddress = walletAddress,
-            };
-            var json = DeskillzJson.Serialize(body);
-            DeskillzManager.Instance.StartCoroutine(
-                PostRequest<HostWithdrawalResponse>(
-                    $"{HOST_ENDPOINT}/withdraw", json,
-                    onSuccess, onError
-                )
-            );
-        }
+        // [N790-3.7.7] WithdrawAllEarnings and RequestWithdrawal removed:
+        // POST /host/withdraw no longer exists; earnings are part of the
+        // Deskillz balance and are withdrawn on deskillz.games.
 
         // =====================================================================
         // CHECK AGE VERIFIED (8.4)
